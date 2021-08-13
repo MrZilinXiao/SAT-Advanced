@@ -1,0 +1,2 @@
+from data_generation.nr3d.stimuli_generation import SameInstanceStimulus
+decode_stimulus_string = SameInstanceStimulus.decode_stimulus_string
