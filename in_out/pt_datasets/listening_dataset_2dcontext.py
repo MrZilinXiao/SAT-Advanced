@@ -6,6 +6,7 @@ import numpy as np
 from torch.utils.data import Dataset, Subset
 from functools import partial
 from in_out.pt_datasets.utils import dataset_to_dataloader, max_io_workers
+from utils import share_array
 
 from pytorch_transformers.tokenization_bert import BertTokenizer
 
@@ -15,8 +16,19 @@ from in_out.pt_datasets.utils import check_segmented_object_order, sample_scan_o
 from in_out.pt_datasets.utils import instance_labels_of_context, mean_rgb_unit_norm_transform
 from data_generation.nr3d import decode_stimulus_string
 
+# import torch.multiprocessing as mp
+# mp.
+
 from loguru import logger
 
+
+# class CacheReader:
+#     def __getitem__(self, item):
+#         return CacheReader._cache_reader()
+#     @staticmethod
+#     def _cache_reader(scene_name, key_name, cache_path='/dev/shm'):
+#         _id = scene_name + '_' + key_name
+#         return share_array.read_cache(_id, shm_path=cache_path)
 
 class ListeningDataset(Dataset):
     # FEAT_2D_FEAT_KEYS = {
@@ -39,7 +51,7 @@ class ListeningDataset(Dataset):
                  num_class_dim=525, evalmode=False):
         self.args = args
         self.references = references
-        self.scans = scans
+        self.scans = scans  # should be shared across workers !!
         self.vocab = vocab
         self.offline_2d_feat = offline_2d_feat
         self.max_seq_len = max_seq_len
@@ -96,6 +108,11 @@ class ListeningDataset(Dataset):
         np.random.shuffle(distractors)
 
         return distractors
+
+    @staticmethod
+    def _cache_reader(scene_name, key_name, cache_path='/dev/shm'):
+        _id = scene_name + '_' + key_name
+        return share_array.read_cache(_id, shm_path=cache_path)
 
     def __getitem__(self, index):
         res = dict()
@@ -182,37 +199,38 @@ class ListeningDataset(Dataset):
         # tag_indices = [101] + tag_indices + [102]
         # assert(len(tag_indices)==(len(context)+2))
         # tag_indices = tag_indices[:self.max_context_size+2]
-        if self.addlabel_words:
-            ## V2: 12/23; option 1: add all words in obj cls in dictionary (include spaces)
-            ## option 2: record the word split, and merge the feature later accordingly
-            ## Implementation of option 2
-            tag_token_inds = torch.zeros(self.max_context_size + 2, dtype=torch.long)  ## CLS, SEP
-            word_split_inds = torch.ones(self.max_context_size,
-                                         dtype=torch.long) * -1.  ## mismatch by 1 position with tag token
-            # tag_indices_list = [self.bert_tokenizer.encode(x.instance_label, add_special_tokens=False) for x in context]
-            tag_indices_list = [[self.bert_tokenizer.encode(x.instance_label, add_special_tokens=False)[0]] for x in
-                                context]
-            word_split_idx, tag_indices = [], []
-            for ii in range(len(tag_indices_list)):
-                # word_split_idx += [ii for x in range(len(tag_indices_list[ii]))]
-                word_split_idx += [ii] * len(tag_indices_list[ii])
-                tag_indices += tag_indices_list[ii]
-            tag_indices = [101] + tag_indices + [102]
-            tag_indices = tag_indices[:self.max_context_size + 2]
-            word_split_idx = word_split_idx[:self.max_context_size]
-            word_split_inds[:len(word_split_idx)] = torch.tensor(word_split_idx)
-            res['word_split_inds'] = word_split_inds.numpy().astype(np.int64)
-            ## end of enc
-            #########################################
 
-            tag_token_inds[:len(tag_indices)] = torch.tensor(tag_indices)
-            tag_token_num = torch.tensor(len(tag_indices), dtype=torch.long)
-            if self.pretrain:
-                tag_token_inds, tag_mlm_label = self.random_word(tag_token_inds, self.bert_tokenizer.vocab,
-                                                                 mask_prob=0.15)
-                mlm_label = torch.cat([mlm_label, tag_mlm_label], dim=0)
-            tag_token_inds[0] = 102
-            token_inds = torch.cat([token_inds, tag_token_inds], dim=0)
+        # if self.addlabel_words:
+        #     ## V2: 12/23; option 1: add all words in obj cls in dictionary (include spaces)
+        #     ## option 2: record the word split, and merge the feature later accordingly
+        #     ## Implementation of option 2
+        #     tag_token_inds = torch.zeros(self.max_context_size + 2, dtype=torch.long)  ## CLS, SEP
+        #     word_split_inds = torch.ones(self.max_context_size,
+        #                                  dtype=torch.long) * -1.  ## mismatch by 1 position with tag token
+        #     # tag_indices_list = [self.bert_tokenizer.encode(x.instance_label, add_special_tokens=False) for x in context]
+        #     tag_indices_list = [[self.bert_tokenizer.encode(x.instance_label, add_special_tokens=False)[0]] for x in
+        #                         context]
+        #     word_split_idx, tag_indices = [], []
+        #     for ii in range(len(tag_indices_list)):
+        #         # word_split_idx += [ii for x in range(len(tag_indices_list[ii]))]
+        #         word_split_idx += [ii] * len(tag_indices_list[ii])
+        #         tag_indices += tag_indices_list[ii]
+        #     tag_indices = [101] + tag_indices + [102]
+        #     tag_indices = tag_indices[:self.max_context_size + 2]
+        #     word_split_idx = word_split_idx[:self.max_context_size]
+        #     word_split_inds[:len(word_split_idx)] = torch.tensor(word_split_idx)
+        #     res['word_split_inds'] = word_split_inds.numpy().astype(np.int64)
+        #     ## end of enc
+        #     #########################################
+        #
+        #     tag_token_inds[:len(tag_indices)] = torch.tensor(tag_indices)
+        #     tag_token_num = torch.tensor(len(tag_indices), dtype=torch.long)
+        #     if self.pretrain:
+        #         tag_token_inds, tag_mlm_label = self.random_word(tag_token_inds, self.bert_tokenizer.vocab,
+        #                                                          mask_prob=0.15)
+        #         mlm_label = torch.cat([mlm_label, tag_mlm_label], dim=0)
+        #     tag_token_inds[0] = 102
+        #     token_inds = torch.cat([token_inds, tag_token_inds], dim=0)
 
         if self.object_transformation is not None:
             # samples = self.object_transformation(samples)
@@ -268,6 +286,7 @@ class ListeningDataset(Dataset):
             # object_size.write('%s,%d\n'%(res['stimulus_id'],len(context[target_pos].points)))
             # object_size.close()
         if self.evalmode:  ## stricktly enforce no 2D context leak in eval mode
+            # TODO: check if really works when evaluating in train stage!
             return res
 
         # load cached 2D context information
@@ -275,12 +294,16 @@ class ListeningDataset(Dataset):
         #         '/localdisk2/zyang39/DATASET/scannet/tasks/scannet_frames_25k_gtobjfeat_aggregate/%s.npy' % scan.scan_id):
         #     context_2d = np.load(
         #         '/localdisk2/zyang39/DATASET/scannet/tasks/scannet_frames_25k_gtobjfeat_aggregate/%s.npy' % scan.scan_id,
-        #         allow_pickle=True, encoding='latin1')  ## TODO: update relative path
-        if os.path.isfile('%s/%s.npy' % (self.offline_2d_feat, scan.scan_id)):
+        #         allow_pickle=True, encoding='latin1')
+        # TODO: add memcache to reduce IO stress
+        # if os.path.isfile('%s/%s.npy' % (self.offline_2d_feat, scan.scan_id)):  # use a online feature? 取决于算得快还是读得快
+        #     context_2d = np.load(
+        #         '%s/%s.npy' % (self.offline_2d_feat, scan.scan_id),
+        #         allow_pickle=True, encoding='latin1')
+        if not self.args.offline_cache:  # no caching...
             context_2d = np.load(
                 '%s/%s.npy' % (self.offline_2d_feat, scan.scan_id),
                 allow_pickle=True, encoding='latin1')
-
             # choose objfeat_2d based on args.feat2d
             if self.args.feat2d.startswith('ROI'):
                 objfeat_2d = context_2d.item()['obj_feat']  # also do not norm...
@@ -294,85 +317,91 @@ class ListeningDataset(Dataset):
             else:
                 raise NotImplemented("Not recognized feat2d keys: {}".format(self.args.feat2d))
 
-            if self.args.clsvec2d:
-                featdim += self.num_class_dim
-
             bbox_2d = context_2d.item()['obj_coord']
-            bboxsize_2d = context_2d.item()['obj_size']
-            obj_depth = context_2d.item()['obj_depth']
-            campose_2d = context_2d.item()['camera_pose']  # 现在的code好像没有加pose进来，跟paper不一致？
+            # bboxsize_2d = context_2d.item()['obj_size']
+            # obj_depth = context_2d.item()['obj_depth']
+            campose_2d = context_2d.item()['camera_pose']
             ins_id_2d = context_2d.item()['instance_id']
+        else:  # read cache
+            if self.args.feat2d.startswith('ROI'):
+                objfeat_2d = self._cache_reader(scan.scan_id, 'obj_feat')  # also do not norm...
+                featdim = 2048
+            elif self.args.feat2d.startswith('CLIP_add'):
+                objfeat_2d = self._cache_reader(scan.scan_id, 'clip_region_feat') + self._cache_reader(scan.scan_id,
+                                                                                                       'clip_scaled_region_feat')
+                featdim = 768
+            elif self.args.feat2d.startswith('CLIP'):  # feat that do not norm!! should consider?
+                objfeat_2d = self._cache_reader(scan.scan_id, 'clip_region_feat')
+                featdim = 768
+            else:
+                raise NotImplemented("Not recognized feat2d keys: {}".format(self.args.feat2d))
 
-            # if (self.feat2dtype.replace('3D', '')) == 'ROI':
-            #     featdim = 2048
-            # elif (self.feat2dtype.replace('3D', '')) == 'clsvec':
-            #     featdim = self.num_class_dim
-            # elif (self.feat2dtype.replace('3D', '')) == 'clsvecROI':  # 已经无关紧要
-            #     featdim = 2048 + self.num_class_dim
+            bbox_2d = self._cache_reader(scan.scan_id, 'obj_coord')
+            # bboxsize_2d = self._cache_reader(scan.scan_id, 'obj_size')
+            # obj_depth = self._cache_reader(scan.scan_id, 'obj_depth')
+            campose_2d = self._cache_reader(scan.scan_id, 'camera_pose')
+            ins_id_2d = self._cache_reader(scan.scan_id, 'instance_id')
 
-            feat_2d = np.zeros((self.max_context_size, featdim)).astype(np.float32)
-            coords_2d = np.zeros((self.max_context_size, 4 + 12)).astype(np.float32)
-            # coords_2d = np.zeros((self.max_context_size, 4+1+12)).astype(np.float32)
+        if self.args.clsvec2d:
+            featdim += self.num_class_dim
 
-            # TODO: select one or multiple 2D regions
-            selected_2d_idx = 0
-            # selected_2d_idx = [random.randint(0, max(0,int((ins_id_2d[ii,:]!=0).astype(np.float32).sum())-1)) for ii in range(ins_id_2d.shape[0])]
-            ##
-            selected_context_id = [o.object_id + 1 for o in context]  ## backbround included in cache, so +1
-            # print(scan.scan_id,objfeat_2d.shape,selected_context_id)
+        feat_2d = np.zeros((self.max_context_size, featdim)).astype(np.float32)
+        coords_2d = np.zeros((self.max_context_size, 4 + 12)).astype(np.float32)
+        # coords_2d = np.zeros((self.max_context_size, 4+1+12)).astype(np.float32)
 
-            # first choose
-            selected_objfeat_2d = objfeat_2d[selected_context_id, selected_2d_idx, :]  ## ROI feat_2d
-            selected_bbox_2d = bbox_2d[selected_context_id, selected_2d_idx, :]
-            selected_bboxsize_2d = bboxsize_2d[selected_context_id, selected_2d_idx]
-            selected_obj_depth = obj_depth[selected_context_id, selected_2d_idx]
-            selected_campose_2d = campose_2d[selected_context_id, selected_2d_idx, :]
-            selected_ins_id_2d = ins_id_2d[selected_context_id, selected_2d_idx]
+        # TODO: select one or multiple 2D regions
+        selected_2d_idx = 0
+        # selected_2d_idx = [random.randint(0, max(0,int((ins_id_2d[ii,:]!=0).astype(np.float32).sum())-1)) for ii in range(ins_id_2d.shape[0])]
+        ##
+        selected_context_id = [o.object_id + 1 for o in context]  ## backbround included in cache, so +1
+        # print(scan.scan_id,objfeat_2d.shape,selected_context_id)
 
-            # if True:  ## use random selected_2d_idx, instead of 0 (dummy if True, removed)
-            for ii in range(len(selected_context_id)):
-                cxt_id = selected_context_id[ii]
-                view_id = random.randint(0, max(0, int((ins_id_2d[cxt_id, :] != 0).astype(
-                    np.float32).sum()) - 1))  # 随机一个view
-                selected_objfeat_2d[ii, :] = objfeat_2d[cxt_id, view_id, :]  ## ROI feat_2d
-                selected_bbox_2d[ii, :] = bbox_2d[cxt_id, view_id, :]
-                selected_bboxsize_2d[ii] = bboxsize_2d[cxt_id, view_id]
-                selected_obj_depth[ii] = obj_depth[cxt_id, view_id]
-                selected_campose_2d[ii, :] = campose_2d[cxt_id, view_id, :]
+        # first choose
+        selected_objfeat_2d = objfeat_2d[selected_context_id, selected_2d_idx, :]  ## ROI feat_2d
+        selected_bbox_2d = bbox_2d[selected_context_id, selected_2d_idx, :]
+        # selected_bboxsize_2d = bboxsize_2d[selected_context_id, selected_2d_idx]
+        # selected_obj_depth = obj_depth[selected_context_id, selected_2d_idx]
+        selected_campose_2d = campose_2d[selected_context_id, selected_2d_idx, :]
+        # selected_ins_id_2d = ins_id_2d[selected_context_id, selected_2d_idx]
 
-            # if (self.feat2dtype.replace('3D', '')) != 'clsvec':
-            #     feat_2d[:len(selected_context_id), :2048] = selected_objfeat_2d  ## ROI feat_2d
-            if self.args.clsvec2d:   # append one-hot class label
-                for ii in range(len(res['class_labels'])):
-                    if self.args.feat2d.startswith('ROI'):
-                        feat_2d[ii, 2048 + res['class_labels'][ii]] = 1.
-                    elif self.args.feat2d.startswith('CLIP'):
-                        feat_2d[ii, 768 + res['class_labels'][ii]] = 1.
-                # if (self.feat2dtype.replace('3D', '')) == 'clsvec':
-                #     feat_2d[ii, res['class_labels'][ii]] = 1.
-                # if (self.feat2dtype.replace('3D', '')) == 'clsvecROI':
-                #     feat_2d[ii, 2048 + res['class_labels'][ii]] = 1.
+        # if True:  ## use random selected_2d_idx, instead of 0 (dummy if True, removed)
+        for ii in range(len(selected_context_id)):
+            cxt_id = selected_context_id[ii]
+            view_id = random.randint(0, max(0, int((ins_id_2d[cxt_id, :] != 0).astype(
+                np.float32).sum()) - 1))  # 对每个context_obj 随机一个view
+            selected_objfeat_2d[ii, :] = objfeat_2d[cxt_id, view_id, :]  ## ROI feat_2d
+            selected_bbox_2d[ii, :] = bbox_2d[cxt_id, view_id, :]
+            # selected_bboxsize_2d[ii] = bboxsize_2d[cxt_id, view_id]
+            # selected_obj_depth[ii] = obj_depth[cxt_id, view_id]
+            selected_campose_2d[ii, :] = campose_2d[cxt_id, view_id, :]
 
-            coords_2d[:len(selected_context_id), :] = np.concatenate([selected_bbox_2d, selected_campose_2d[:, :12]],
-                                                                     axis=-1)   # bbox + cam_pose
-            # coords_2d[:len(selected_context_id),:] = np.concatenate([selected_bbox_2d, selected_obj_depth.reshape(-1,1), selected_campose_2d[:,:12]],axis=-1) ## 1296*968
+        # if (self.feat2dtype.replace('3D', '')) != 'clsvec':
+        #     feat_2d[:len(selected_context_id), :2048] = selected_objfeat_2d  ## ROI feat_2d
+        if self.args.clsvec2d:  # append one-hot class label
+            for ii in range(len(res['class_labels'])):
+                if self.args.feat2d.startswith('ROI'):
+                    feat_2d[ii, 2048 + res['class_labels'][ii]] = 1.
+                elif self.args.feat2d.startswith('CLIP'):
+                    feat_2d[ii, 768 + res['class_labels'][ii]] = 1.
+            # if (self.feat2dtype.replace('3D', '')) == 'clsvec':
+            #     feat_2d[ii, res['class_labels'][ii]] = 1.
+            # if (self.feat2dtype.replace('3D', '')) == 'clsvecROI':
+            #     feat_2d[ii, 2048 + res['class_labels'][ii]] = 1.
 
-            # 1296*968 scale down to 0~1
-            coords_2d[:, 0], coords_2d[:, 2] = coords_2d[:, 0] / 1296., coords_2d[:, 2] / 1296.
-            coords_2d[:, 1], coords_2d[:, 3] = coords_2d[:, 1] / 968., coords_2d[:, 3] / 968.
-            # print(selected_ins_id_2d)
-            # print(selected_objfeat_2d.shape)
-            # # self.max_2d_view
-            # print(scan.scan_id,res['class_labels'],samples.shape)
-            # print([o.object_id for o in context])
-            # print([o.instance_label for o in context])
-            # exit(0)
-        else:
-            # # feat_2d = np.zeros((self.max_context_size, 2048)).astype(np.float32)
-            # feat_2d = np.zeros((self.max_context_size, self.num_class_dim)).astype(np.float32)
-            # coords_2d = np.zeros((self.max_context_size, 4+12)).astype(np.float32)
-            print(scan.scan_id)
-            exit(0)
+        coords_2d[:len(selected_context_id), :] = np.concatenate([selected_bbox_2d, selected_campose_2d[:, :12]],
+                                                                 axis=-1)  # bbox + cam_pose
+        # coords_2d[:len(selected_context_id),:] = np.concatenate([selected_bbox_2d, selected_obj_depth.reshape(-1,1), selected_campose_2d[:,:12]],axis=-1) ## 1296*968
+
+        # 1296*968 scale down to 0~1
+        coords_2d[:, 0], coords_2d[:, 2] = coords_2d[:, 0] / 1296., coords_2d[:, 2] / 1296.
+        coords_2d[:, 1], coords_2d[:, 3] = coords_2d[:, 1] / 968., coords_2d[:, 3] / 968.
+        # print(selected_ins_id_2d)
+        # print(selected_objfeat_2d.shape)
+        # # self.max_2d_view
+        # print(scan.scan_id,res['class_labels'],samples.shape)
+        # print([o.object_id for o in context])
+        # print([o.instance_label for o in context])
+        # exit(0)
         res['feat_2d'] = feat_2d
         res['coords_2d'] = coords_2d
         # res['feat_2d'] = np.random.random(feat_2d.shape).astype(np.float32)
@@ -497,10 +526,13 @@ def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb, 
                                    context_object=args.context_obj,
                                    feat2dtype=args.feat2d,
                                    addlabel_words=args.addlabel_words,
-                                   num_class_dim=525 if '00' in args.scannet_file else 608,  # 判断似乎有问题？
-                                   evalmode=(args.mode == 'evaluate'))
+                                   num_class_dim=525 if '00' in args.scannet_file else 608,
+                                   # 判断似乎有问题？Tips: Nr3D和Sr3D的type数量不同
+                                   evalmode=(args.mode == 'evaluate'))  # 在训练途中的eval怎么办？
+
         if split == 'train' and cut_prefix_num is not None:  # split subset form profiling
             dataset = Subset(dataset, np.arange(cut_prefix_num))
+            n_workers = 0
             logger.info("Slicing the prev {} samples for train-set profiling!".format(cut_prefix_num))
 
         seed = seed
