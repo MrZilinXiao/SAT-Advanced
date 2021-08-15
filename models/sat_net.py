@@ -316,21 +316,21 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             obj_mmt_in = torch.cat([obj_mmt_in, context_obj_mmt_in], dim=1)
             obj_mask = torch.cat([obj_mask, context_obj_mask], dim=1)
 
-        if 'context_objects' in batch:  # or 'closest_context_objects' in batch or 'rand_context_objects' in batch:
-            # context objects是一系列3D distractors，包括target_object
-            # 有必要context objects吗？论文里没提到
-            context_object = batch[
-                'context_objects']  # if 'closest_context_objects' in batch else batch['rand_context_objects']
-            context_objects_features = get_siamese_features(self.cnt_object_encoder, context_object,
-                                                            aggregator=torch.stack)  # B X N_Objects x object-latent-dim
-            context_obj_mmt_in = self.cnt_feat_layer_norm(
-                self.cnt_linear_obj_feat_to_mmt_in(context_objects_features)) + \
-                                 self.cnt_bbox_layer_norm(self.cnt_linear_obj_bbox_to_mmt_in(batch['context_offset']))
-            context_obj_mmt_in = self.context_drop(context_obj_mmt_in)
-            context_obj_mask = _get_mask(batch['context_size'].to(context_obj_mmt_in.device),
-                                         obj_num)  ## all proposals are non-empty
-            obj_mmt_in = torch.cat([obj_mmt_in, context_obj_mmt_in], dim=1)  # N, obj_num + context_obj_num, feat_size
-            obj_mask = torch.cat([obj_mask, context_obj_mask], dim=1)
+        # if 'context_objects' in batch:  # or 'closest_context_objects' in batch or 'rand_context_objects' in batch:
+        #     # context objects是一系列3D distractors，包括target_object
+        #     # 有必要context objects吗？论文里没提到
+        #     context_object = batch[
+        #         'context_objects']  # if 'closest_context_objects' in batch else batch['rand_context_objects']
+        #     context_objects_features = get_siamese_features(self.cnt_object_encoder, context_object,
+        #                                                     aggregator=torch.stack)  # B X N_Objects x object-latent-dim
+        #     context_obj_mmt_in = self.cnt_feat_layer_norm(
+        #         self.cnt_linear_obj_feat_to_mmt_in(context_objects_features)) + \
+        #                          self.cnt_bbox_layer_norm(self.cnt_linear_obj_bbox_to_mmt_in(batch['context_offset']))
+        #     context_obj_mmt_in = self.context_drop(context_obj_mmt_in)
+        #     context_obj_mask = _get_mask(batch['context_size'].to(context_obj_mmt_in.device),
+        #                                  obj_num)  ## all proposals are non-empty
+        #     obj_mmt_in = torch.cat([obj_mmt_in, context_obj_mmt_in], dim=1)  # N, obj_num + context_obj_num, feat_size
+        #     obj_mask = torch.cat([obj_mask, context_obj_mask], dim=1)
 
         # Get feature for utterance
         txt_inds = batch["token_inds"]  # batch_size, lang_size

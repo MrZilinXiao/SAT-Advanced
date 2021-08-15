@@ -64,7 +64,7 @@ def single_epoch_train(model, data_loader, criteria, optimizer, device, pad_idx,
     np.random.seed(
         args.random_seed + epoch)  # call this to change the sampling of the point-clouds, in a time-invariant way
     batch_keys = make_batch_keys(args)
-    # with torch.autograd.profiler.profile(use_cuda=True) as prof:
+    # with torch.autograd.profiler.profile(use_cuda=True) as prof:  # is this indicating a performance issue?
     for batch in tqdm.tqdm(data_loader):
         # for batch in data_loader:
         # Move data to gpu

@@ -167,7 +167,7 @@ def load_scan_related_data(preprocessed_scannet_file, verbose=True, add_pad=True
         instance_labels.update([o.instance_label for o in scan.three_d_objects])
         assert np.all(idx == np.arange(len(idx)))  # assert the list of objects-ids -is- the range(n_objects).
         # because we use this ordering when we sample objects from a scan.
-    all_scans = {scan.scan_id: scan for scan in all_scans}  # place scans in dictionary
+    all_scans = {scan.scan_id: scan for scan in all_scans}  # place scans in dictionary, should be shared across workers
 
     class_to_idx = {}
     i = 0

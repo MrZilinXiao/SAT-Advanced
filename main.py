@@ -16,12 +16,29 @@ python train_py
 --mmt_mask $mmt_mask
 --warmup
 
-e.g.:
-python main.py --init-lr 0.0001 --batch-size=32 --gpu=0 --transformer --experiment-tag=debug \
---model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+e.g.: (ROI feat)
+python main.py --init-lr 0.0001 --batch-size=32 --gpu=0 --transformer --experiment-tag=roi_feat \
+--model mmt_referIt3DNet -scannet-file ~/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/CLIP-npy/scannet_frames_25k_CLIP_RN5016/ \
+-offline-cache \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
---feat2d ROI3D --clsvec2d --context_2d unaligned --mmt_mask train2d --warmup --save-args
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --warmup --save-args --n-workers 8
+
+(ROI resume)
+python main.py --init-lr 0.0001 --batch-size=32 --gpu=0 --transformer --experiment-tag=roi_feat \
+--model mmt_referIt3DNet -scannet-file ~/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/CLIP-npy/scannet_frames_25k_CLIP_RN5016/ \
+-offline-cache --resume-path /data/logs/roi_feat/08-15-2021-09-50-09/checkpoints/best_model.pth \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --warmup --save-args --n-workers 8
+
+e.g. 2: (CLIP feat)
+python main.py --init-lr 0.0001 --batch-size=32 --gpu=1 --transformer --experiment-tag=clip_add \
+--model mmt_referIt3DNet -scannet-file ~/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/CLIP-npy/scannet_frames_25k_CLIP_RN5016/ \
+-offline-cache \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d --warmup --save-args --n-workers 8
 
 """
 
@@ -180,18 +197,19 @@ if __name__ == '__main__':
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.65,
                                                               patience=10 if args.patience >= 30 else 5, verbose=True)
     # patience=5, verbose=True)
-    if args.patience == args.max_train_epochs:
+    if args.patience == args.max_train_epochs:  # will triggered in default params settings
         # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[60,80], gamma=0.1)
         # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[23,37,43,51,60,71,79,87], gamma=0.65)    ## custom1
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 40, 50, 60, 70, 80, 90],
                                                             gamma=0.65)  ## custom2
-        if args.max_train_epochs == 120: lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                                                             milestones=[25, 40, 55, 70,
-                                                                                                         85, 100],
-                                                                                             gamma=0.5)  ## custom3-120ep
+        # if args.max_train_epochs == 120:
+        #     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+        #                                                         milestones=[25, 40, 55, 70,
+        #                                                                     85, 100],
+        #                                                         gamma=0.5)  ## custom3-120ep
     if args.warmup:
         scheduler_warmup = GradualWarmupScheduler(optimizer, multiplier=1, total_epoch=5, after_scheduler=lr_scheduler)
-        optimizer.zero_grad()  ## this zero gradient update is needed to avoid a warning message, issue #8.
+        optimizer.zero_grad()  # this zero gradient update is needed to avoid a warning message, issue #8.
         optimizer.step()
 
     start_training_epoch = 1
@@ -233,10 +251,10 @@ if __name__ == '__main__':
         assert (len([k for k, v in pretrained_dict.items()]) != 0)
         model_dict.update(pretrained_dict)
         model.load_state_dict(model_dict)
-        print("=> loaded pretrain model at {}"
-              .format(args.pretrain_path))
+        logger.info("=> loaded pretrain model at {}"
+                    .format(args.pretrain_path))
         if 'best' in load_model['lr_scheduler']:
-            print('Loaded model had {} test-accuracy in the corresponding dataset used when trained.'.format(
+            logger.info('Loaded model had {} test-accuracy in the corresponding dataset used when trained.'.format(
                 load_model['lr_scheduler']['best']))
 
     # Training.
@@ -247,12 +265,18 @@ if __name__ == '__main__':
 
         if args.profile:
             logger.info('Starting Profiling...')
-            with torch.autograd.profiler.profile(enabled=True, use_cuda=True, record_shapes=False,
-                                                 profile_memory=False) as prof:
+            # with torch.autograd.profiler.profile(enabled=True, use_cuda=True, record_shapes=False,
+            #                                      profile_memory=False) as prof:
+            with torch.profiler.profile(
+                    schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
+                    on_trace_ready=torch.profiler.tensorboard_trace_handler('/data/logs/profile'),
+                    record_shapes=True,
+                    with_stack=True
+            ) as prof:
                 train_meters = single_epoch_train(model, data_loaders['train'], criteria, optimizer,
                                                   device, pad_idx, args=args, epoch=0)  # train 1 epoch for profiling
-            print(prof.table())
-            prof.export_chrome_trace('./sat_train_profile.json')
+                # print(prof.table())
+            # prof.export_chrome_trace('./sat_train_profile.json')
             exit(0)
 
         with tqdm.trange(start_training_epoch, args.max_train_epochs + 1, desc='epochs') as bar:
@@ -260,8 +284,10 @@ if __name__ == '__main__':
             for epoch in bar:
                 # Train:
                 if args.warmup:
-                    scheduler_warmup.step(epoch=epoch, metrics=eval_acc)  ## using the previous epoch's metrics
-                print('lr:', epoch, optimizer.param_groups[0]['lr'], optimizer.param_groups[1]['lr'])
+                    print('warmup triggered...')
+                    scheduler_warmup.step(epoch=epoch, metrics=eval_acc)  # using the previous epoch's metrics
+                logger.info('Current LR (epoch {}): rest {}, backbone {}'.format(epoch, optimizer.param_groups[0]['lr'],
+                                                                                 optimizer.param_groups[1]['lr']))
 
                 tic = time.time()
                 train_meters = single_epoch_train(model, data_loaders['train'], criteria, optimizer,
@@ -297,10 +323,14 @@ if __name__ == '__main__':
 
                 log_train_test_information()
                 train_meters.update(test_meters)
+                train_meters.update(
+                    {'rest_lr': optimizer.param_groups[0]['lr'], 'backbone_lr': optimizer.param_groups[1]['lr']})
                 train_vis.log_scalars({k: v for k, v in train_meters.items() if '_acc' in k}, step=epoch,
                                       main_tag='acc')
                 train_vis.log_scalars({k: v for k, v in train_meters.items() if '_loss' in k},
                                       step=epoch, main_tag='loss')
+                train_vis.log_scalars({k: v for k, v in train_meters.items() if '_lr' in k},
+                                      step=epoch, main_tag='lr')
 
                 bar.refresh()
 
