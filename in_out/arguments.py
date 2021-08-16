@@ -23,6 +23,9 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--note', type=str, help='Experiment note', default='default_note')
     parser.add_argument('--profile', action='store_true', default=False, help='Using torch.autograd.profiler.profile to profile performance')
 
+    parser.add_argument('--debug', action='store_true', default=False)
+    parser.add_argument('--skip-train', action='store_true', default=False)
+
     #
     # Non-optional arguments
     #
@@ -102,7 +105,7 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--context_obj', type=str, default=None, help="context object; rand, closest, farthest.")
     # parser.add_argument('--feat2d', type=str, default="ROI", choices=['ROI', 'clsvec', 'clsvecROI', 'ROI3D', 'clsvec3D', 'clsvecROI3D'], help="ROI/clsvec/clsvecROI/ROI3D/clsvec3D/clsvecROI3D. \
     #     XXX3D should be used in unaligned setting as supervision, instead of aligned setting as input")
-    parser.add_argument('--feat2d', type=str, default="ROI", choices=['ROI', 'ROI3D', 'CLIP', 'CLIP3D', 'CLIP_add', 'CLIP_add3D'], help="\
+    parser.add_argument('--feat2d', type=str, default=None, choices=['ROI', 'ROI3D', 'CLIP', 'CLIP3D', 'CLIP_add', 'CLIP_add3D'], help="\
         XXX3D should be used in unaligned setting as supervision, instead of aligned setting as input")   # 新的settings只留可能用到的部分
     parser.add_argument('--clsvec2d', action="store_true", default=True, help='whether append one-hot class vector in 2D feature')
 

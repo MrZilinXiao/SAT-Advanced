@@ -102,26 +102,28 @@ class MMT(BertPreTrainedModel):
             # decoding step elements can attend to themselves in a causal manner
             num_2d = obj_max_num // 2
             extended_attention_mask[:, :, :-num_2d, -num_2d:] = 0.
+        else:
+            raise NotImplemented()
 
-        elif self.mmt_mask == 'train2dmasklabel':
-            to_seq_length = attention_mask.size(1)
-            from_seq_length = to_seq_length
-            extended_attention_mask = extended_attention_mask.repeat(
-                1, 1, from_seq_length, 1
-            )
-            # decoding step elements can attend to themselves in a causal manner
-            num_2d = obj_max_num // 2  ## (24+2+obj_num*3)
-            num_query = 24
-            if not self.addlabel_words:
-                extended_attention_mask[:, :, :-num_2d, -num_2d:] = 0.  # 与train2d一致
-                # extended_attention_mask[:, :, -num_2d:, :-num_2d] = 0.    ## ablation: mask B
-            else:
-                # extended_attention_mask[:, :, :-num_2d, -num_2d:] = 0.
-                extended_attention_mask[:, :, :num_query, num_query:-obj_max_num] = 0.
-                extended_attention_mask[:, :, :num_query, -num_2d:] = 0.
-                extended_attention_mask[:, :, -obj_max_num:-num_2d, num_query:-obj_max_num] = 0.
-                extended_attention_mask[:, :, -obj_max_num:-num_2d, -num_2d:] = 0.
-                # extended_attention_mask[:, :, num_query:-obj_max_num, -num_2d:] = 0.
+        # elif self.mmt_mask == 'train2dmasklabel':
+        #     to_seq_length = attention_mask.size(1)
+        #     from_seq_length = to_seq_length
+        #     extended_attention_mask = extended_attention_mask.repeat(
+        #         1, 1, from_seq_length, 1
+        #     )
+        #     # decoding step elements can attend to themselves in a causal manner
+        #     num_2d = obj_max_num // 2  ## (24+2+obj_num*3)
+        #     num_query = 24
+        #     if not self.addlabel_words:
+        #         extended_attention_mask[:, :, :-num_2d, -num_2d:] = 0.  # 与train2d一致
+        #         # extended_attention_mask[:, :, -num_2d:, :-num_2d] = 0.    ## ablation: mask B
+        #     else:
+        #         # extended_attention_mask[:, :, :-num_2d, -num_2d:] = 0.
+        #         extended_attention_mask[:, :, :num_query, num_query:-obj_max_num] = 0.
+        #         extended_attention_mask[:, :, :num_query, -num_2d:] = 0.
+        #         extended_attention_mask[:, :, -obj_max_num:-num_2d, num_query:-obj_max_num] = 0.
+        #         extended_attention_mask[:, :, -obj_max_num:-num_2d, -num_2d:] = 0.
+        #         # extended_attention_mask[:, :, num_query:-obj_max_num, -num_2d:] = 0.
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
         assert not extended_attention_mask.requires_grad
         head_mask = [None] * self.config.num_hidden_layers

@@ -146,7 +146,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         # Encoders for single object
         self.object_encoder = object_encoder
         self.linear_obj_feat_to_mmt_in = nn.Linear(visudim, MMT_HIDDEN_SIZE)
-        self.linear_obj_bbox_to_mmt_in = nn.Linear(4, MMT_HIDDEN_SIZE)
+        self.linear_obj_bbox_to_mmt_in = nn.Linear(4, MMT_HIDDEN_SIZE)  #
         self.obj_feat_layer_norm = BertLayerNorm(MMT_HIDDEN_SIZE)
         self.obj_bbox_layer_norm = BertLayerNorm(MMT_HIDDEN_SIZE)
         self.obj_drop = nn.Dropout(0.1)
@@ -169,6 +169,8 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             featdim = 768
         elif self.args.feat2d.startswith('CLIP_add'):
             featdim = 768
+        elif self.args.feat2d is None:
+            pass
         else:
             raise NotImplemented("Not recognized feat2d keys: {}".format(self.args.feat2d))
 
@@ -178,7 +180,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         self.linear_2d_feat_to_mmt_in = nn.Linear(featdim, MMT_HIDDEN_SIZE)
         # self.linear_2d_feat_to_mmt_in = nn.Sequential(nn.Linear(2048, 32),
         #                          nn.Linear(32, MMT_HIDDEN_SIZE))
-        self.linear_2d_bbox_to_mmt_in = nn.Linear(16, MMT_HIDDEN_SIZE)   # 4(bbox) + 12(pose)
+        self.linear_2d_bbox_to_mmt_in = nn.Linear(16, MMT_HIDDEN_SIZE)  # 4(bbox) + 12(pose)
         self.obj2d_feat_layer_norm = BertLayerNorm(MMT_HIDDEN_SIZE)
         self.obj2d_bbox_layer_norm = BertLayerNorm(MMT_HIDDEN_SIZE)
 
@@ -370,7 +372,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             if not self.addlabel_words:
                 assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + obj_num))
             else:
-                assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + 2 + obj_num * 2))
+                assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + 2 + obj_num * 2))  # why +2 ?
         if self.args_mode != 'evaluate' and self.context_2d == 'unaligned':
             if not self.addlabel_words:
                 assert (mmt_results['mmt_seq_output'].shape[1] == (

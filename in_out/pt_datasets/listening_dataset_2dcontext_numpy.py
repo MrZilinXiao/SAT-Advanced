@@ -20,8 +20,6 @@ from data_generation.nr3d import decode_stimulus_string
 # mp.
 
 from loguru import logger
-from memory_profiler import profile
-import gc
 
 
 # class CacheReader:
@@ -53,7 +51,8 @@ class ListeningDataset(Dataset):
                  num_class_dim=525, evalmode=False):
         self.args = args
         self.references = references
-        self.scans = scans  # should be shared across experiments !!
+        # self.scans = scans  # a dict like {'scene_0000_01': ScannetScanObject, ...}
+        self.scans = np.array(scans)
         self.vocab = vocab
         self.offline_2d_feat = offline_2d_feat
         self.max_seq_len = max_seq_len
@@ -86,7 +85,9 @@ class ListeningDataset(Dataset):
 
     def get_reference_data(self, index):
         ref = self.references.loc[index]
-        scan = self.scans[ref['scan_id']]
+        # scan = self.scans[ref['scan_id']]
+        scan = self.scans.item()[ref['scan_id']]   # trying a numpy dict to reduce memory leak
+
         target = scan.three_d_objects[ref['target_id']]
         tokens = np.array(self.vocab.encode(ref['tokens'], self.max_seq_len), dtype=np.long)
         is_nr3d = ref['dataset'] == 'nr3d'
@@ -116,7 +117,6 @@ class ListeningDataset(Dataset):
         _id = scene_name + '_' + key_name
         return share_array.read_cache(_id, shm_path=cache_path)
 
-    # @profile
     def __getitem__(self, index):
         res = dict()
         scan, target, tokens, text_tokens, is_nr3d = self.get_reference_data(index)
@@ -358,12 +358,12 @@ class ListeningDataset(Dataset):
         selected_context_id = [o.object_id + 1 for o in context]  ## backbround included in cache, so +1
         # print(scan.scan_id,objfeat_2d.shape,selected_context_id)
 
-        # first choose, all view-0 on dim 1
-        selected_objfeat_2d = objfeat_2d[selected_context_id, selected_2d_idx, :].copy()  ## ROI feat_2d
-        selected_bbox_2d = bbox_2d[selected_context_id, selected_2d_idx, :].copy()
+        # first choose
+        selected_objfeat_2d = objfeat_2d[selected_context_id, selected_2d_idx, :]  ## ROI feat_2d
+        selected_bbox_2d = bbox_2d[selected_context_id, selected_2d_idx, :]
         # selected_bboxsize_2d = bboxsize_2d[selected_context_id, selected_2d_idx]
         # selected_obj_depth = obj_depth[selected_context_id, selected_2d_idx]
-        selected_campose_2d = campose_2d[selected_context_id, selected_2d_idx, :].copy()
+        selected_campose_2d = campose_2d[selected_context_id, selected_2d_idx, :]
         # selected_ins_id_2d = ins_id_2d[selected_context_id, selected_2d_idx]
 
         # if True:  ## use random selected_2d_idx, instead of 0 (dummy if True, removed)
@@ -371,11 +371,11 @@ class ListeningDataset(Dataset):
             cxt_id = selected_context_id[ii]
             view_id = random.randint(0, max(0, int((ins_id_2d[cxt_id, :] != 0).astype(
                 np.float32).sum()) - 1))  # 对每个context_obj 随机一个view
-            selected_objfeat_2d[ii, :] = objfeat_2d[cxt_id, view_id, :].copy()  ## ROI feat_2d
-            selected_bbox_2d[ii, :] = bbox_2d[cxt_id, view_id, :].copy()
+            selected_objfeat_2d[ii, :] = objfeat_2d[cxt_id, view_id, :]  ## ROI feat_2d
+            selected_bbox_2d[ii, :] = bbox_2d[cxt_id, view_id, :]
             # selected_bboxsize_2d[ii] = bboxsize_2d[cxt_id, view_id]
             # selected_obj_depth[ii] = obj_depth[cxt_id, view_id]
-            selected_campose_2d[ii, :] = campose_2d[cxt_id, view_id, :].copy()
+            selected_campose_2d[ii, :] = campose_2d[cxt_id, view_id, :]
 
         # if (self.feat2dtype.replace('3D', '')) != 'clsvec':
         #     feat_2d[:len(selected_context_id), :2048] = selected_objfeat_2d  ## ROI feat_2d

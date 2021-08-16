@@ -1,6 +1,7 @@
 """
 Utilities to analyze, train, test an 3d_listener.
 """
+import time
 
 import torch
 import numpy as np
@@ -14,6 +15,8 @@ import torch.nn.functional as F
 
 from utils.evaluation import AverageMeter
 from loguru import logger
+
+from memory_profiler import profile
 
 
 def make_batch_keys(args, extras=None):
@@ -700,3 +703,102 @@ def cls_pred_stats(logits, gt_labels, ignore_label):
     # missed_samples = gt_labels[torch.logical_not(correct_guessed)] # TODO  - why?
     mean_accuracy = torch.mean(correct_guessed.double()).item()
     return mean_accuracy, found_samples
+
+@profile
+def single_epoch_debug(model, data_loader, criteria, optimizer, device, pad_idx, args, epoch=None):
+    """
+    :param model:
+    :param data_loader:
+    :param criteria: (dict) holding all modules for computing the losses.
+    :param optimizer:
+    :param device:
+    :param pad_idx: (int)
+    :param args:
+    :return:
+    """
+    metrics = dict()  # holding the losses/accuracies
+    total_loss_mtr = AverageMeter()
+    referential_loss_mtr = AverageMeter()
+    obj_loss_mtr = AverageMeter()
+    ref_acc_mtr = AverageMeter()
+    cls_acc_mtr = AverageMeter()
+    txt_acc_mtr = AverageMeter()
+
+    # Set the model in training mode
+    model.train()
+    # np.random.seed()  # call this to change the sampling of the point-clouds
+    np.random.seed(
+        args.random_seed + epoch)  # call this to change the sampling of the point-clouds, in a time-invariant way
+    batch_keys = make_batch_keys(args)
+    # with torch.autograd.profiler.profile(use_cuda=True) as prof:  # is this indicating a performance issue?
+    for batch in tqdm.tqdm(data_loader):
+        # for batch in data_loader:
+        # Move data to gpu
+        for k in batch_keys:
+            if k in batch:
+                batch[k] = batch[k].to(device)
+
+        if args.object_encoder == 'pnet':
+            batch['objects'] = batch['objects'].permute(0, 1, 3, 2)
+        print('debug...simulate 0.01s training...')
+        time.sleep(0.01)
+        # Forward pass
+        # res = model(batch)
+
+        # Backward
+        # optimizer.zero_grad()
+        # all_losses = compute_losses(batch, res, criteria, args)
+        # total_loss = all_losses['total_loss']
+        # total_loss.backward()
+        # optimizer.step()
+        #
+        # # Update the loss and accuracy meters
+        # target = batch['target_pos']
+        # batch_size = target.size(0)  # B x N_Objects
+        # total_loss_mtr.update(total_loss.item(), batch_size)
+        #
+        # # referential_loss_mtr.update(all_losses['referential_loss'].item(), batch_size)
+        # # TODO copy the ref-loss to homogeneize the code
+        # referential_loss_mtr.update(all_losses['referential_loss'], batch_size)
+        #
+        # if args.pretrain:  ## MLM Acc
+        #     batch_size, tokenlen, vocab_size = res['mlm_pred'].shape
+        #     scores = res['mlm_pred'].view(batch_size * tokenlen, -1)
+        #     targets = batch['mlm_label'].view(batch_size * tokenlen)
+        #     loss_mask = (targets != -1).float()
+        #     pollute_mask = batch["contra_pollute"].repeat(1, tokenlen).view(-1).float()
+        #     loss_mask = (loss_mask * (1 - pollute_mask)).bool()  ## 1 is polluted, not compute MLM
+        #     if torch.sum(loss_mask.float()) == 0.:
+        #         accuracy = torch.zeros(1, device=torch.device('cuda'))
+        #     else:
+        #         scores, targets = scores[loss_mask], targets[loss_mask]
+        #         accuracy = torch.sum(scores.argmax(1) == targets).float() / max(targets.shape[0], 1)
+        #     guessed_correctly = accuracy.item()  # .cpu().numpy()
+        #     ## contra acc
+        #     contra_accuracy = torch.sum(((torch.sigmoid(res['contra_pred']) > 0.5).float() == (
+        #             batch['contra_pollute'] > 0.5).float()).float()) / max(res['contra_pred'].shape[0], 1)
+        #     # ref_acc_mtr.update(guessed_correctly, batch_size)
+        #     ref_acc_mtr.update(contra_accuracy * accuracy.item(), batch_size)
+        # else:  ## main ref acc
+        #     predictions = torch.argmax(res['logits'], dim=1)
+        #     guessed_correctly = torch.mean((predictions == target).double()).item()
+        #     ref_acc_mtr.update(guessed_correctly, batch_size)
+        #
+        # if args.obj_cls_alpha > 0:
+        #     cls_b_acc, _ = cls_pred_stats(res['class_logits'], batch['class_labels'], ignore_label=pad_idx)
+        #     cls_acc_mtr.update(cls_b_acc, batch_size)
+        #     obj_loss_mtr.update(all_losses['obj_clf_loss'].item(), batch_size)
+        #
+        # if args.lang_cls_alpha > 0:
+        #     batch_guess = torch.argmax(res['lang_logits'], -1)
+        #     cls_b_acc = torch.mean((batch_guess == batch['target_class']).double())
+        #     txt_acc_mtr.update(cls_b_acc, batch_size)
+
+    metrics['train_total_loss'] = total_loss_mtr.avg
+    metrics['train_referential_loss'] = referential_loss_mtr.avg
+    metrics['train_obj_clf_loss'] = obj_loss_mtr.avg
+    metrics['train_referential_acc'] = ref_acc_mtr.avg
+    metrics['train_object_cls_acc'] = cls_acc_mtr.avg
+    metrics['train_txt_cls_acc'] = txt_acc_mtr.avg
+    # print(prof.key_averages().table(sort_by="self_cpu_time_total"))
+    return metrics

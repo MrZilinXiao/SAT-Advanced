@@ -19,13 +19,16 @@ def get_siamese_features(net, in_features, aggregator=None):
     return out_features
 
 
-def save_state_dicts(checkpoint_file, epoch=None, **kwargs):
+def save_state_dicts(checkpoint_file, epoch=None, best_test_acc=None, **kwargs):
     """Save torch items with a state_dict.
     """
     checkpoint = dict()
 
     if epoch is not None:
         checkpoint['epoch'] = epoch
+
+    if best_test_acc is not None:
+        checkpoint['best_test_acc'] = best_test_acc
 
     for key, value in kwargs.items():
         checkpoint[key] = value.state_dict()
@@ -54,5 +57,6 @@ def load_state_dicts(checkpoint_file, map_location=None, **kwargs):
     #     value.load_state_dict(model_dict)
 
     epoch = checkpoint.get('epoch')
-    if epoch:
-        return epoch
+    best_test_acc = checkpoint.get('best_test_acc')
+    # if epoch:
+    return epoch, best_test_acc  # might be None!

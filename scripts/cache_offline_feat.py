@@ -1,6 +1,6 @@
 """
 Each time after restarting the OS:
-sudo mount -o size=32000M  -o  remount  /dev/shm
+sudo mount -o size=60000M  -o  remount  /dev/shm
 """
 import os
 import sys
@@ -47,7 +47,7 @@ def cache_array(scene_path):
 
 
 def clean_up_cache():
-    del_list = [p for p in os.listdir(CACHE_PATH) if os.path.basename(p).startswith(CACHE_FILE_PREFIX)]
+    del_list = [os.path.join(CACHE_PATH, p) for p in os.listdir(CACHE_PATH) if os.path.basename(p).startswith(CACHE_FILE_PREFIX)]
     for file in del_list:
         try:
             os.remove(file)
@@ -66,8 +66,7 @@ if __name__ == '__main__':
     parser.add_argument('--workers', type=int, default=-1)
     parser.add_argument('--debug', action='store_true', default=False)
     parser.add_argument('--keys', nargs='+', default=['clip_region_feat', 'clip_scaled_region_feat', 'obj_feat',
-                                                      'obj_coord', 'obj_size', 'camera_pose', 'instance_id',
-                                                      'obj_depth', 'frame_id'])
+                                                      'obj_coord', 'camera_pose', 'instance_id'])
     args = parser.parse_args()
     num_workers = get_workers(args.workers)
     CACHE_PATH = args.cache_path

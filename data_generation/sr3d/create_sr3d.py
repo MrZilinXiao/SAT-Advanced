@@ -7,11 +7,11 @@ import numpy as np
 import os.path as osp
 import pandas as pd
 
-from referit3d.data_generation.sr3d import AllocentricGenerator, BetweenGenerator, HPGenerator, SupportAndVPGenerator
-from referit3d.utils import unpickle_data, read_lines, str2bool
-from referit3d.in_out.scan_2cad import load_scan2cad_meta_data, load_has_front_meta_data
-from referit3d.in_out.scan_2cad import register_scan2cad_bboxes, register_front_direction
-from referit3d.in_out.scannet_scan import scan_and_target_id_to_context_info
+from data_generation.sr3d import AllocentricGenerator, BetweenGenerator, HPGenerator, SupportAndVPGenerator
+from utils import unpickle_data, read_lines, str2bool
+from in_out.scan_2cad import load_scan2cad_meta_data, load_has_front_meta_data
+from in_out.scan_2cad import register_scan2cad_bboxes, register_front_direction
+from in_out.scannet_scan import scan_and_target_id_to_context_info
 
 EXTRA_ANCHORS = ['staircase', 'bathtub', 'tv stand', 'copier', 'ladder',
                  'fireplace', 'piano', 'refrigerator', 'stove', 'bathroom vanity',
