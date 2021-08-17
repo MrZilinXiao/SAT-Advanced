@@ -67,8 +67,10 @@ def single_epoch_train(model, data_loader, criteria, optimizer, device, pad_idx,
     np.random.seed(
         args.random_seed + epoch)  # call this to change the sampling of the point-clouds, in a time-invariant way
     batch_keys = make_batch_keys(args)
+    print(('\n' + '%14s' * 5) % ('steps', 'gpu_mem', 'LR', 'ref_acc', 'total_loss'))
     # with torch.autograd.profiler.profile(use_cuda=True) as prof:  # is this indicating a performance issue?
-    for batch in tqdm.tqdm(data_loader):
+    pbar = tqdm.tqdm(enumerate(data_loader), total=len(data_loader))
+    for i, batch in pbar:
         # for batch in data_loader:
         # Move data to gpu
         for k in batch_keys:
@@ -129,6 +131,17 @@ def single_epoch_train(model, data_loader, criteria, optimizer, device, pad_idx,
             batch_guess = torch.argmax(res['lang_logits'], -1)
             cls_b_acc = torch.mean((batch_guess == batch['target_class']).double())
             txt_acc_mtr.update(cls_b_acc, batch_size)
+
+        # add some nice prompt:
+        if (i + 1) % 10 == 0 or i == len(data_loader) - 1:
+            mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)
+            s = ('%14s' * 2 + '%14.7g' + '%14.5g' * 2) % ('%d/%d' % (epoch, args.max_train_epochs),
+                                                          mem,
+                                                          optimizer.state_dict()['param_groups'][0]['lr'],
+                                                          ref_acc_mtr.avg,
+                                                          total_loss_mtr.avg
+                                                          )
+            pbar.set_description(s)
 
     metrics['train_total_loss'] = total_loss_mtr.avg
     metrics['train_referential_loss'] = referential_loss_mtr.avg
@@ -704,6 +717,7 @@ def cls_pred_stats(logits, gt_labels, ignore_label):
     # missed_samples = gt_labels[torch.logical_not(correct_guessed)] # TODO  - why?
     mean_accuracy = torch.mean(correct_guessed.double()).item()
     return mean_accuracy, found_samples
+
 
 @profile
 def single_epoch_debug(model, data_loader, criteria, optimizer, device, pad_idx, args, epoch=None):
