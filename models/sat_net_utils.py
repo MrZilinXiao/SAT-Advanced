@@ -365,7 +365,7 @@ def compute_losses(batch, res, criterion_dict, args):
                 'target_pos'])  # nn.CrossEntropyLoss(reduction='none').to(device)
         else:
             vg2d_loss = criterion(res['logits_2D'], batch['target_pos'])
-            # 2D Grounding loss, logits_2D(softmax后)对齐target_pos(语句的GT object choice)
+            # 2D Grounding loss, logits_2D(softmax后)对齐target_pos(语句所指的GT object index)
             # criterion默认是‘class_logits’
         ## 2D-3D align loss; contra loss, cos
         feat_2d = res['mmt_obj_output_2D']  # 虽然是offline的2D feature，但是后面接了一个head
@@ -453,6 +453,7 @@ def evaluate_on_dataset(model, data_loader, criteria, device, pad_idx, args, ran
     model.eval()
 
     assert (randomize == False)
+
     if randomize:
         np.random.seed()  # call this to change the sampling of the point-clouds #TODO-A talk about it.
     else:

@@ -28,16 +28,16 @@ class TextBert(BertPreTrainedModel):
         attention_mask = txt_mask
 
         extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-        if self.mmt_mask == 'train2dmasklabel':
-            to_seq_length = attention_mask.size(1)
-            from_seq_length = to_seq_length
-            extended_attention_mask = extended_attention_mask.repeat(
-                1, 1, from_seq_length, 1
-            )
-            # decoding step elements can attend to themselves in a causal manner
-            num_query = 24
-            if self.addlabel_words:
-                extended_attention_mask[:, :, :num_query, num_query:] = 0.
+        # if self.mmt_mask == 'train2dmasklabel':
+        #     to_seq_length = attention_mask.size(1)
+        #     from_seq_length = to_seq_length
+        #     extended_attention_mask = extended_attention_mask.repeat(
+        #         1, 1, from_seq_length, 1
+        #     )
+        #     # decoding step elements can attend to themselves in a causal manner
+        #     num_query = 24
+        #     if self.addlabel_words:
+        #         extended_attention_mask[:, :, :num_query, num_query:] = 0.
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
         assert not extended_attention_mask.requires_grad
         head_mask = [None] * self.config.num_hidden_layers
@@ -69,12 +69,15 @@ class MMT(BertPreTrainedModel):
         self.init_weights()
 
     def forward(self, txt_emb, txt_mask, obj_emb, obj_mask, obj_num):
+        """
+
+        """
         # scene_context = torch.max(obj_emb * obj_mask.unsqueeze(-1).repeat(1,1,obj_emb.shape[-1]),dim=1)[0]
         # obj_emb = torch.cat([scene_context.unsqueeze(1),obj_emb],dim=1)
         # obj_mask = torch.cat([obj_mask[:,0].unsqueeze(1),obj_mask],dim=1)
 
         encoder_inputs = torch.cat([txt_emb, obj_emb], dim=1)
-        attention_mask = torch.cat([txt_mask, obj_mask], dim=1)  # N, obj_len+txt_len
+        attention_mask = torch.cat([txt_mask, obj_mask], dim=1)  # N, 2*obj_len+txt_len
 
         # type_idx = torch.ones(encoder_inputs[:,:,0].shape).long().to(txt_emb.device)
         # type_idx[:,:txt_emb.shape[1]] = 0
@@ -87,21 +90,21 @@ class MMT(BertPreTrainedModel):
         txt_begin = 0
         obj_begin = txt_max_num
 
-        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)  # N, 1, 1, obj_len+txt_len
+        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)  # N, 1, 1, 2*obj_len+txt_len
         ## special attention masks over lang, 3d, 2d
         if self.mmt_mask == 'train2d':
             # [batch_size, from_seq_length, to_seq_length]
             # mask type 1: 3d, lang can't see 2d
             # 对应SAT training
-            to_seq_length = attention_mask.size(1)  # obj_len+txt_len
+            to_seq_length = attention_mask.size(1)  # 2*obj_len+txt_len
             from_seq_length = to_seq_length
             extended_attention_mask = extended_attention_mask.repeat(
                 1, 1, from_seq_length, 1
-            )  # N, 1, obj_len+txt_len (from), obj_len+txt_len (to)
+            )  # N, 1, 2*obj_len+txt_len (from), 2*obj_len+txt_len (to)
             # 在from上的顺序应该是：text, 3D, 2D
             # decoding step elements can attend to themselves in a causal manner
-            num_2d = obj_max_num // 2
-            extended_attention_mask[:, :, :-num_2d, -num_2d:] = 0.
+            num_2d = obj_max_num // 2  # obj_len
+            extended_attention_mask[:, :, :-num_2d, -num_2d:] = 0.  # TODO: checkout mask dim permutation
         else:
             raise NotImplemented()
 

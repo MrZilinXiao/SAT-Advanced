@@ -6,9 +6,6 @@ import numpy as np
 from PIL import Image
 import torchvision.transforms as transforms
 
-# loader = transforms.Compose([
-#     transforms.ToTensor()]) 
-
 device = "cuda" if torch.cuda.is_available() else "cpu"
 device = torch.device('cuda:1')
 # device = "cpu"

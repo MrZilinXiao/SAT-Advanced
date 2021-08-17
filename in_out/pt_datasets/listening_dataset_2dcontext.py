@@ -16,11 +16,10 @@ from in_out.pt_datasets.utils import check_segmented_object_order, sample_scan_o
 from in_out.pt_datasets.utils import instance_labels_of_context, mean_rgb_unit_norm_transform
 from data_generation.nr3d import decode_stimulus_string
 
-# import torch.multiprocessing as mp
-# mp.
+import clip
 
 from loguru import logger
-from memory_profiler import profile
+# from memory_profiler import profile
 import gc
 
 
@@ -66,16 +65,19 @@ class ListeningDataset(Dataset):
 
         # SAT added parts below
         self.pretrain = pretrain
-        self.context_object = context_object  # bool: 是否加入context_objects
+        # self.context_object = context_object  # bool: 是否加入context_objects
         self.feat2dtype = feat2dtype
-        self.max_2d_view = 5
-        self.addlabel_words = addlabel_words
+        # self.max_2d_view = 5
+        # self.addlabel_words = addlabel_words  # remove duplicated flags
         self.num_class_dim = num_class_dim
         self.evalmode = evalmode
 
-        self.bert_tokenizer = BertTokenizer.from_pretrained(
-            'bert-base-uncased')
-        assert self.bert_tokenizer.encode(self.bert_tokenizer.pad_token) == [0]
+        if not args.use_clip_language:  # TextBERT
+            self.bert_tokenizer = BertTokenizer.from_pretrained(
+                'bert-base-uncased')
+            assert self.bert_tokenizer.encode(self.bert_tokenizer.pad_token) == [0]
+        else:  # clip-BERT
+            self.clip_tokenizer = clip.tokenize
 
         if not check_segmented_object_order(scans):
             raise ValueError
@@ -116,17 +118,27 @@ class ListeningDataset(Dataset):
         _id = scene_name + '_' + key_name
         return share_array.read_cache(_id, shm_path=cache_path)
 
+    def _load_split_offline_npy(self, scene_name, key_name):
+        _path = os.path.join(self.args.offline_2d_feat, scene_name + '_' + key_name + '.npy')
+        return np.load(_path)
+
     # @profile
     def __getitem__(self, index):
         res = dict()
         scan, target, tokens, text_tokens, is_nr3d = self.get_reference_data(index)
-        ## BERT tokenize
-        token_inds = torch.zeros(self.max_seq_len, dtype=torch.long)
-        indices = self.bert_tokenizer.encode(
-            ' '.join(text_tokens), add_special_tokens=True)
-        indices = indices[:self.max_seq_len]
-        token_inds[:len(indices)] = torch.tensor(indices)
-        token_num = torch.tensor(len(indices), dtype=torch.long)
+        # ScannetScan Object, ThreeDObject Object, [24 + 2] ndarray, list of word str, bool flag of is_nr3d
+        # TextBERT tokenize
+        if not self.args.use_clip_language:
+            token_inds = torch.zeros(self.max_seq_len, dtype=torch.long)
+            indices = self.bert_tokenizer.encode(
+                ' '.join(text_tokens), add_special_tokens=True)
+            indices = indices[:self.max_seq_len]
+            token_inds[:len(indices)] = torch.tensor(indices)
+            token_num = torch.tensor(len(indices), dtype=torch.long)
+
+        else:
+            clip_indices = self.clip_tokenizer(' '.join(text_tokens))  # have to remove batch_dim
+            clip_indices = clip_indices.squeeze(0)  # shape: [768]
         # if self.pretrain:
         #     ## entire seq replace for now
         #     contra_rand = random.random()
@@ -141,7 +153,7 @@ class ListeningDataset(Dataset):
         #     res['query_pollute'] = query_pollute.numpy().astype(np.int64)
         #     res['contra_pollute'] = contra_pollute.numpy().astype(np.int64)
         #     ##
-        #     token_inds, mlm_label = self.random_word(token_inds, self.bert_tokenizer.vocab, mask_prob=0.15)
+        #     token_inds, mlm_label = self.random_word(token_inds, self.bert_tokenizer.vocab, mask_prob=0.15
 
         # Make a context of distractors
         context = self.prepare_distractors(scan, target)  # default 51
@@ -156,36 +168,36 @@ class ListeningDataset(Dataset):
         # mark their classes
         res['class_labels'] = instance_labels_of_context(context, self.max_context_size, self.class_to_idx)
 
-        if self.context_object is not None:
-            # ## get context region
-            # closest_context, farthest_context, rand_context = [], [], []
-            context_obj = []
-            for ii in range(len(context)):
-                objectA = context[ii]
-                dist = np.array([objectA.distance_from_other_object(objectB, optimized=True) for objectB in context])
-                dist[dist == 0.] = np.mean(dist[dist != 0.])  ## not select as min, max
-                # rand = random.choice([i for i in range(len(context)) if i!=ii])
-                closest, farthest, rand = int(np.argmin(dist)), int(np.argmax(dist)), random.randint(0, len(dist) - 1)
-                if self.context_object == 'rand':
-                    context_idx = rand
-                elif self.context_object == 'closest':
-                    context_idx = closest
-                elif self.context_object == 'farthest':
-                    context_idx = farthest
-                pc_context = sample_union_pc(objectA, context[context_idx], scan)
-                sampled_idx = np.random.choice(pc_context.shape[0], self.points_per_object,
-                                               replace=pc_context.shape[0] < self.points_per_object)
-                context_obj.append(pc_context[sampled_idx])
-            context_obj = np.array(context_obj)
-            # closest_context, farthest_context, rand_context = np.array(closest_context), np.array(farthest_context), np.array(rand_context)
-            ##
-            if self.object_transformation is not None:
-                context_obj, context_obj_offset = self.object_transformation(context_obj)
-                res['context_offset'] = np.zeros((self.max_context_size, context_obj_offset.shape[1])).astype(
-                    np.float32)
-                res['context_offset'][:len(context_obj_offset), :] = context_obj_offset.astype(np.float32)
-            # take care of padding, so that a batch has same number of N-objects across scans.
-            res['context_objects'] = pad_samples(context_obj, self.max_context_size)
+        # if self.context_object is not None:
+        #     # ## get context region
+        #     # closest_context, farthest_context, rand_context = [], [], []
+        #     context_obj = []
+        #     for ii in range(len(context)):
+        #         objectA = context[ii]
+        #         dist = np.array([objectA.distance_from_other_object(objectB, optimized=True) for objectB in context])
+        #         dist[dist == 0.] = np.mean(dist[dist != 0.])  ## not select as min, max
+        #         # rand = random.choice([i for i in range(len(context)) if i!=ii])
+        #         closest, farthest, rand = int(np.argmin(dist)), int(np.argmax(dist)), random.randint(0, len(dist) - 1)
+        #         if self.context_object == 'rand':
+        #             context_idx = rand
+        #         elif self.context_object == 'closest':
+        #             context_idx = closest
+        #         elif self.context_object == 'farthest':
+        #             context_idx = farthest
+        #         pc_context = sample_union_pc(objectA, context[context_idx], scan)
+        #         sampled_idx = np.random.choice(pc_context.shape[0], self.points_per_object,
+        #                                        replace=pc_context.shape[0] < self.points_per_object)
+        #         context_obj.append(pc_context[sampled_idx])
+        #     context_obj = np.array(context_obj)
+        #     # closest_context, farthest_context, rand_context = np.array(closest_context), np.array(farthest_context), np.array(rand_context)
+        #     ##
+        #     if self.object_transformation is not None:
+        #         context_obj, context_obj_offset = self.object_transformation(context_obj)
+        #         res['context_offset'] = np.zeros((self.max_context_size, context_obj_offset.shape[1])).astype(
+        #             np.float32)
+        #         res['context_offset'][:len(context_obj_offset), :] = context_obj_offset.astype(np.float32)
+        #     # take care of padding, so that a batch has same number of N-objects across scans.
+        #     res['context_objects'] = pad_samples(context_obj, self.max_context_size)
 
         #########################################
         # ## TODO: check tokenizer
@@ -261,18 +273,23 @@ class ListeningDataset(Dataset):
 
         res['target_class'] = self.class_to_idx[target.instance_label]
         res['target_pos'] = target_pos
-        res['target_class_mask'] = target_class_mask
-        res['tokens'] = tokens
-        res['token_inds'] = token_inds.numpy().astype(np.int64)
-        res['token_num'] = token_num.numpy().astype(np.int64)
+        res['target_class_mask'] = target_class_mask  # indicating which objects have the same instance-class as the target.
+
+        if not self.args.use_clip_language:
+            res['tokens'] = tokens
+            res['token_inds'] = token_inds.numpy().astype(np.int64)
+            res['token_num'] = token_num.numpy().astype(np.int64)
+        else:
+            res['clip_inds'] = clip_indices
+
         # if self.addlabel_words: res['tag_token_num'] = tag_token_num.numpy().astype(np.int64)
         res['is_nr3d'] = is_nr3d
         # if self.pretrain:
         #     res["mlm_label"] = mlm_label.numpy().astype(np.int64)
 
         if self.visualization:
-            distrators_pos = np.zeros((6))  # 6 is the maximum context size we used in dataset collection
-            object_ids = np.zeros((self.max_context_size))
+            distrators_pos = np.zeros(6)  # 6 is the maximum context size we used in dataset collection
+            object_ids = np.zeros(self.max_context_size)
             j = 0
             for k, o in enumerate(context):
                 if o.instance_label == target.instance_label and o.object_id != target.object_id:
@@ -288,8 +305,8 @@ class ListeningDataset(Dataset):
             # object_size = open('object_size.txt','a')
             # object_size.write('%s,%d\n'%(res['stimulus_id'],len(context[target_pos].points)))
             # object_size.close()
-        if self.evalmode:  ## stricktly enforce no 2D context leak in eval mode
-            # TODO: not reasonable!!
+        if self.evalmode:  ## strictly enforce no 2D context leak in eval mode
+            # TODO: not reasonable!! will miss those keys like 'feat2d' & 'coords_2d', which triggers 'KeyError' in standalone eval!
             return res
 
         # load cached 2D context information
@@ -298,32 +315,40 @@ class ListeningDataset(Dataset):
         #     context_2d = np.load(
         #         '/localdisk2/zyang39/DATASET/scannet/tasks/scannet_frames_25k_gtobjfeat_aggregate/%s.npy' % scan.scan_id,
         #         allow_pickle=True, encoding='latin1')
-        # TODO: add memcache to reduce IO stress
+        # DONE: add memcache to reduce IO stress
         # if os.path.isfile('%s/%s.npy' % (self.offline_2d_feat, scan.scan_id)):  # use a online feature? 取决于算得快还是读得快
         #     context_2d = np.load(
         #         '%s/%s.npy' % (self.offline_2d_feat, scan.scan_id),
         #         allow_pickle=True, encoding='latin1')
+
+        # TODO: read in image patches if use_clip_visual is enabled, 用于计划2
         if not self.args.offline_cache:  # no caching...
-            context_2d = np.load('%s/%s.npy' % (self.offline_2d_feat, scan.scan_id),
-                                 allow_pickle=True, encoding='latin1')
+            # context_2d = np.load('%s/%s.npy' % (self.offline_2d_feat, scan.scan_id),
+            #                      allow_pickle=True, encoding='latin1')
             # choose objfeat_2d based on args.feat2d
             if self.args.feat2d.startswith('ROI'):
-                objfeat_2d = context_2d.item()['obj_feat']  # also do not norm...
+                objfeat_2d = self._load_split_offline_npy(scan.scan_id, 'obj_feat')
                 featdim = 2048
             elif self.args.feat2d.startswith('CLIP_add'):
-                objfeat_2d = context_2d.item()['clip_region_feat'] + context_2d.item()['clip_scaled_region_feat']
+                objfeat_2d = self._load_split_offline_npy(scan.scan_id, 'clip_region_feat') + \
+                             self._load_split_offline_npy(scan.scan_id, 'clip_scaled_region_feat')
                 featdim = 768
             elif self.args.feat2d.startswith('CLIP'):  # feat that do not norm!! should consider?
-                objfeat_2d = context_2d.item()['clip_region_feat']
+                objfeat_2d = self._load_split_offline_npy(scan.scan_id, 'clip_region_feat')  # also do not norm...
                 featdim = 768
             else:
                 raise NotImplemented("Not recognized feat2d keys: {}".format(self.args.feat2d))
 
-            bbox_2d = context_2d.item()['obj_coord']
+            # bbox_2d = context_2d.item()['obj_coord']
+            bbox_2d = self._load_split_offline_npy(scan.scan_id, 'obj_coord')
+
             # bboxsize_2d = context_2d.item()['obj_size']
             # obj_depth = context_2d.item()['obj_depth']
-            campose_2d = context_2d.item()['camera_pose']
-            ins_id_2d = context_2d.item()['instance_id']
+            # campose_2d = context_2d.item()['camera_pose']
+            campose_2d = self._load_split_offline_npy(scan.scan_id, 'camera_pose')
+            # ins_id_2d = context_2d.item()['instance_id']
+            ins_id_2d = self._load_split_offline_npy(scan.scan_id, 'instance_id')
+
         else:  # read cache
             if self.args.feat2d.startswith('ROI'):
                 objfeat_2d = self._cache_reader(scan.scan_id, 'obj_feat')  # also do not norm...
@@ -351,31 +376,30 @@ class ListeningDataset(Dataset):
         coords_2d = np.zeros((self.max_context_size, 4 + 12)).astype(np.float32)
         # coords_2d = np.zeros((self.max_context_size, 4+1+12)).astype(np.float32)
 
-        # TODO: select one or multiple 2D regions
         selected_2d_idx = 0
         # selected_2d_idx = [random.randint(0, max(0,int((ins_id_2d[ii,:]!=0).astype(np.float32).sum())-1)) for ii in range(ins_id_2d.shape[0])]
         ##
-        selected_context_id = [o.object_id + 1 for o in context]  ## backbround included in cache, so +1
+        selected_context_id = [o.object_id + 1 for o in context]  # background included in cache, so +1
         # print(scan.scan_id,objfeat_2d.shape,selected_context_id)
 
         # first choose, all view-0 on dim 1
-        selected_objfeat_2d = objfeat_2d[selected_context_id, selected_2d_idx, :].copy()  ## ROI feat_2d
-        selected_bbox_2d = bbox_2d[selected_context_id, selected_2d_idx, :].copy()
+        selected_objfeat_2d = objfeat_2d[selected_context_id, selected_2d_idx, :]  ## ROI feat_2d
+        selected_bbox_2d = bbox_2d[selected_context_id, selected_2d_idx, :]
         # selected_bboxsize_2d = bboxsize_2d[selected_context_id, selected_2d_idx]
         # selected_obj_depth = obj_depth[selected_context_id, selected_2d_idx]
-        selected_campose_2d = campose_2d[selected_context_id, selected_2d_idx, :].copy()
+        selected_campose_2d = campose_2d[selected_context_id, selected_2d_idx, :]
         # selected_ins_id_2d = ins_id_2d[selected_context_id, selected_2d_idx]
 
-        # if True:  ## use random selected_2d_idx, instead of 0 (dummy if True, removed)
+        # if True:  # use random selected_2d_idx, instead of 0 (dummy if True, removed)
         for ii in range(len(selected_context_id)):
             cxt_id = selected_context_id[ii]
             view_id = random.randint(0, max(0, int((ins_id_2d[cxt_id, :] != 0).astype(
                 np.float32).sum()) - 1))  # 对每个context_obj 随机一个view
-            selected_objfeat_2d[ii, :] = objfeat_2d[cxt_id, view_id, :].copy()  ## ROI feat_2d
-            selected_bbox_2d[ii, :] = bbox_2d[cxt_id, view_id, :].copy()
+            selected_objfeat_2d[ii, :] = objfeat_2d[cxt_id, view_id, :]  ## ROI feat_2d
+            selected_bbox_2d[ii, :] = bbox_2d[cxt_id, view_id, :]
             # selected_bboxsize_2d[ii] = bboxsize_2d[cxt_id, view_id]
             # selected_obj_depth[ii] = obj_depth[cxt_id, view_id]
-            selected_campose_2d[ii, :] = campose_2d[cxt_id, view_id, :].copy()
+            selected_campose_2d[ii, :] = campose_2d[cxt_id, view_id, :]
 
         # if (self.feat2dtype.replace('3D', '')) != 'clsvec':
         #     feat_2d[:len(selected_context_id), :2048] = selected_objfeat_2d  ## ROI feat_2d
@@ -392,10 +416,6 @@ class ListeningDataset(Dataset):
                     feat_2d[ii, 2048 + res['class_labels'][ii]] = 1.
                 elif self.args.feat2d.startswith('CLIP'):
                     feat_2d[ii, 768 + res['class_labels'][ii]] = 1.
-            # if (self.feat2dtype.replace('3D', '')) == 'clsvec':
-            #     feat_2d[ii, res['class_labels'][ii]] = 1.
-            # if (self.feat2dtype.replace('3D', '')) == 'clsvecROI':
-            #     feat_2d[ii, 2048 + res['class_labels'][ii]] = 1.
 
         coords_2d[:len(selected_context_id), :] = np.concatenate([selected_bbox_2d, selected_campose_2d[:, :12]],
                                                                  axis=-1)  # bbox + cam_pose

@@ -17,20 +17,27 @@ python train_py
 --warmup
 
 e.g.: (ROI feat)
-python main.py --init-lr 0.0001 --batch-size=16 --gpu=0 --transformer --experiment-tag=roi_feat \
---model mmt_referIt3DNet -scannet-file ~/keep_all_points_00_view_with_global_scan_alignment.pkl \
--offline-2d-feat /data/meta-ScanNet/CLIP-npy/scannet_frames_25k_CLIP_RN5016/ \
+python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 --transformer --experiment-tag=roi_feat \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
---feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 8
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4
+
+(ROI feat replicated)
+python main.py --init-lr 0.0001 --batch-size=16 --gpu=3 --transformer --experiment-tag=roi_feat \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4
 
 (ROI debug)
 python main.py --init-lr 0.0001 --batch-size=16 --gpu=0 --transformer --experiment-tag=roi_feat \
 --model mmt_referIt3DNet -scannet-file ~/keep_all_points_00_view_with_global_scan_alignment.pkl \
--offline-2d-feat /data/meta-ScanNet/CLIP-npy/scannet_frames_25k_CLIP_RN5016/ \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 0 --debug
 
-(ROI evaluate, 现在有问题！)
+(ROI evaluate, 有KeyError问题，稍后解决)
 python main.py --mode evaluate --init-lr 0.0001 --batch-size=16 --gpu=2 --transformer --experiment-tag=roi_feat \
 --model mmt_referIt3DNet -scannet-file ~/keep_all_points_00_view_with_global_scan_alignment.pkl \
 --resume-path /data/logs/roi_feat/08-15-2021-09-50-09/checkpoints/best_model.pth \
@@ -38,11 +45,11 @@ python main.py --mode evaluate --init-lr 0.0001 --batch-size=16 --gpu=2 --transf
 --context_2d unaligned --mmt_mask train2d --save-args --n-workers 8
 
 e.g. 2: (CLIP feat)
-python main.py --init-lr 0.0001 --batch-size=16 --gpu=1 --transformer --experiment-tag=clip_add \
---model mmt_referIt3DNet -scannet-file ~/keep_all_points_00_view_with_global_scan_alignment.pkl \
--offline-2d-feat /data/meta-ScanNet/CLIP-npy/scannet_frames_25k_CLIP_RN5016/ \
+python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 --transformer --experiment-tag=clip_add \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
---feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 8
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4
 
 """
 

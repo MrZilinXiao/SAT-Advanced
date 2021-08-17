@@ -1,0 +1,12 @@
+pytorch_transformers
+tensorboard
+termcolor
+tqdm
+nltk
+matplotlib
+pandas
+shapely
+plyfile
+loguru
+sklearn
+pyyaml
