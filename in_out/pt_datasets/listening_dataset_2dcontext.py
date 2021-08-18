@@ -138,7 +138,8 @@ class ListeningDataset(Dataset):
 
         else:
             clip_indices = self.clip_tokenizer(' '.join(text_tokens))  # have to remove batch_dim
-            clip_indices = clip_indices.squeeze(0)  # shape: [768]
+            clip_indices = clip_indices.squeeze(0)  # shape: [77] on cpu
+            token_num = torch.sum(clip_indices != 0)  #
         # if self.pretrain:
         #     ## entire seq replace for now
         #     contra_rand = random.random()
@@ -278,10 +279,10 @@ class ListeningDataset(Dataset):
         if not self.args.use_clip_language:
             res['tokens'] = tokens
             res['token_inds'] = token_inds.numpy().astype(np.int64)
-            res['token_num'] = token_num.numpy().astype(np.int64)
+            # res['token_num'] = token_num.numpy().astype(np.int64)
         else:
             res['clip_inds'] = clip_indices
-
+        res['token_num'] = token_num.numpy().astype(np.int64)
         # if self.addlabel_words: res['tag_token_num'] = tag_token_num.numpy().astype(np.int64)
         res['is_nr3d'] = is_nr3d
         # if self.pretrain:

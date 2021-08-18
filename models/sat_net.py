@@ -16,6 +16,7 @@ from models.clip import OnlineCLIP
 from models.default_blocks import *
 from models.utils import get_siamese_features
 from in_out.vocabulary import Vocabulary
+from loguru import logger
 
 try:
     from . import PointNetPP
@@ -127,6 +128,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                 mmt_mask=self.mmt_mask,
                 addlabel_words=self.addlabel_words)
         else:  # use clip transformer
+            logger.info('Using CLIP Online Language Encoder...')
             TEXT_BERT_HIDDEN_SIZE = 768  # CLIP fixed language feat dim
 
         if TEXT_BERT_HIDDEN_SIZE != MMT_HIDDEN_SIZE:
@@ -164,10 +166,12 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         self.matching_cls = MatchingLinear(input_size=MMT_HIDDEN_SIZE)
         if self.context_2d == 'unaligned':
             self.matching_cls_2D = MatchingLinear(input_size=MMT_HIDDEN_SIZE)
-        self.mlm_cls = BertLMPredictionHead(self.text_bert.embeddings.word_embeddings.weight,
-                                            input_size=MMT_HIDDEN_SIZE)
+
+        # 2021-08-19 00:30:45 remove pretrain classifier & contra_classifier
+        # self.mlm_cls = BertLMPredictionHead(self.text_bert.embeddings.word_embeddings.weight,
+        #                                     input_size=MMT_HIDDEN_SIZE)
         # self.mlm_cls = MatchingLinear(outputdim = self.text_bert.embeddings.word_embeddings.weight.shape[0])
-        self.contra_cls = PolluteLinear()
+        # self.contra_cls = PolluteLinear()
         # if self.loss_proj:  # 新建一个loss_proj映射？outdated
         #     # self.fw_2dfeat = nn.Linear(768,768,bias=False)
         #     # self.fw_3dfeat = nn.Linear(768,768,bias=False)
@@ -216,6 +220,9 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         obj_mmt_in = self.obj_feat_layer_norm(self.linear_obj_feat_to_mmt_in(objects_features)) + \
                      self.obj_bbox_layer_norm(self.linear_obj_bbox_to_mmt_in(batch['obj_offset']))  # obj_offset
         # 3D features
+
+        if 'feat_2d' in batch and self.args.norm_offline_feat:
+            batch['feat_2d'] /= batch['feat_2d'].norm(dim=-1, keepdim=True)
 
         if self.context_2d == 'aligned':  # 如果2D-3D已对齐
             obj_mmt_in = obj_mmt_in + \
@@ -269,7 +276,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             txt_type_mask = torch.ones(txt_inds.shape, device=torch.device('cuda')) * 1.
 
             # if not self.addlabel_words:
-            txt_mask = _get_mask(batch['token_num'].to(txt_inds.device),
+            txt_mask = _get_mask(batch['token_num'].to(txt_inds.device),  # how many token are not masked
                                  txt_inds.size(1))  ## all proposals are non-empty
             # else:
             #     txt_mask = _get_mask(batch['token_num'].to(txt_inds.device),
@@ -291,6 +298,8 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                 result['lang_logits'] = self.language_clf(text_bert_out[:, 0, :])   # language classifier only use [CLS] token
         else:  # clip language encoder
             txt_emb = self.clip_model.encode_text(batch['clip_inds'])   # txt embeddings shape: [N, lang_size, 768]
+            txt_mask = _get_mask(batch['token_num'].to(batch['clip_inds'].device),  # how many token are not masked
+                                 batch['clip_inds'].size(1))
             if self.language_clf is not None:
                 result['lang_logits'] = self.language_clf(txt_emb[:, 0, :])  # TODO: is CLIP also use [CLS] token?
 
@@ -313,9 +322,10 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                         self.text_length + obj_num * 2))  # 3D + 2D = obj_num * 2
             else:
                 assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + 2 + obj_num * 3))
-        if self.pretrain:
-            result["mlm_pred"] = self.mlm_cls(mmt_results['mmt_txt_output'])
-            result["contra_pred"] = self.contra_cls(mmt_results['mmt_seq_output'][:, 0, :])
+
+        # if self.pretrain:
+        #     result["mlm_pred"] = self.mlm_cls(mmt_results['mmt_txt_output'])
+        #     result["contra_pred"] = self.contra_cls(mmt_results['mmt_seq_output'][:, 0, :])
 
         result['logits'] = self.matching_cls(mmt_results['mmt_obj_output'])
 

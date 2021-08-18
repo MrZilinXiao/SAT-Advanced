@@ -39,6 +39,11 @@ def make_batch_keys(args, extras=None):
     if args.lang_cls_alpha > 0:
         batch_keys.append('target_class')
 
+    if args.clip_backbone is not None and args.use_clip_language:
+        batch_keys.append('clip_inds')
+
+    # more online batch keys goes here
+
     return batch_keys
 
 

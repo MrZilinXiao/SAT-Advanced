@@ -180,6 +180,7 @@ def set_gpu_to_zero_position(real_gpu_loc):
 #
 #     # Add stdout to also print statements there
 #     if std_out:
+
 #         logger.addHandler(logging.StreamHandler(sys.stdout))
 #     return logger
 
@@ -192,3 +193,21 @@ def create_logger(log_dir):
                format="{time} {level} {message}",
                level="DEBUG")
     return logger
+
+
+def save_code_to_git(commit_msg):
+    cmd = 'git add -A ' + \
+          '&& git commit -m ' + commit_msg
+    os.system(cmd)
+
+
+def wandb_init(args):
+    # tensorboard patching must be ahead of constructing SummaryWriter
+    import wandb
+    # record those useful hyper-params
+    wandb.init(project='SAT-CLIP',
+               entity='godkillerxiao',
+               config=vars(args),
+               sync_tensorboard=True,
+               name='-'.join(args.log_dir.split('/')[-2:])
+               )

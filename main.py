@@ -16,26 +16,19 @@ python train_py
 --mmt_mask $mmt_mask
 --warmup
 
-e.g.: (ROI feat)
+e.g.: (ROI feat) 2021-08-18 09:55:29 --  roi_feat/08-16-2021-19-38-29  复现结果 47.5
 python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 --transformer --experiment-tag=roi_feat \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
---feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit
 
-(ROI feat replicated)
+(ROI feat replicated)  Ongoing, slower due to lower batch_size: roi_feat/08-17-2021-09-39-20
 python main.py --init-lr 0.0001 --batch-size=16 --gpu=3 --transformer --experiment-tag=roi_feat \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4
-
-(ROI debug)
-python main.py --init-lr 0.0001 --batch-size=16 --gpu=0 --transformer --experiment-tag=roi_feat \
---model mmt_referIt3DNet -scannet-file ~/keep_all_points_00_view_with_global_scan_alignment.pkl \
--offline-2d-feat /data/meta-ScanNet/split_feat/ \
--referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
---feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 0 --debug
 
 (ROI evaluate, 有KeyError问题，稍后解决)
 python main.py --mode evaluate --init-lr 0.0001 --batch-size=16 --gpu=2 --transformer --experiment-tag=roi_feat \
@@ -44,12 +37,30 @@ python main.py --mode evaluate --init-lr 0.0001 --batch-size=16 --gpu=2 --transf
 -referit3D-file /data/meta-ScanNet/nr3d.csv --unit-sphere-norm True \
 --context_2d unaligned --mmt_mask train2d --save-args --n-workers 8
 
-e.g. 2: (CLIP feat)
+e.g. 2: (CLIP_add feat)   Done: clip_add/08-16-2021-19-55-34   复现结果46.6
 python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 --transformer --experiment-tag=clip_add \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4
+
+e.g. 3: (CLIP_add norm feat)   Ongoing
+CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 --transformer --experiment-tag=clip_add_norm \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-offline-feat --n-workers 4
+
+e.g. 4: (CLIP_add norm offline feat & CLIP language online encoder)
+CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=20 --gpu=1 --transformer --experiment-tag=clip_lang \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--clip-backbone RN50x16 --use-clip-language \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-offline-feat --n-workers 4 --wandb-log --git-commit
+
 
 """
 
@@ -73,7 +84,7 @@ from in_out.pt_datasets.listening_dataset_2dcontext import make_data_loaders
 # from in_out.pt_datasets.listening_dataset_2dcontext_numpy import make_data_loaders    # will this solve issue?
 
 from models.sat_net import instantiate_referit3d_net
-from utils import set_gpu_to_zero_position, seed_training_code, create_logger
+from utils import set_gpu_to_zero_position, seed_training_code, create_logger, wandb_init, save_code_to_git
 from utils.scheduler import GradualWarmupScheduler
 from utils.tf_visualizer import Visualizer
 
@@ -107,6 +118,16 @@ if __name__ == '__main__':
     # Parse arguments
     args = parse_arguments()
 
+    set_gpu_to_zero_position(args.gpu)  # Pnet++ seems to work only at "gpu:0", make only args.gpu visible by torch
+    device = torch.device('cuda')
+    # TODO: now torch seems ignore in-place env setting, using CUDA_VISIBLE_DEVICES instead...
+
+    if args.wandb_log:
+        wandb_init(args)
+
+    if args.git_commit:
+        save_code_to_git('-'.join(args.log_dir.split('/')[-2:]))   # extract the last two parts of args.logdir
+
     logger = create_logger(args.log_dir)  # setting a global logger
 
     if args.context_2d != 'unaligned':
@@ -126,8 +147,9 @@ if __name__ == '__main__':
                                      cut_prefix_num=1000 if args.profile or args.debug else None)
 
     # Prepare GPU environment
-    set_gpu_to_zero_position(args.gpu)  # Pnet++ seems to work only at "gpu:0", is that true?
-    device = torch.device('cuda')
+    # set_gpu_to_zero_position(args.gpu)  # Pnet++ seems to work only at "gpu:0", make only args.gpu visible by torch
+    # device = torch.device('cuda')
+    # device = torch.device('cuda:' + str(args.gpu))
     torch.backends.cudnn.benchmark = True
     seed_training_code(args.random_seed, strict=False)  # should speed up using cudnn
 

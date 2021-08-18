@@ -19,7 +19,10 @@ class OnlineCLIP(nn.Module):
         self.args = args
         model, _ = clip.load(args.clip_backbone, device='cpu')  # jit False by default, load in CPU first
 
+        self.dtype = model.visual.conv1.weight.dtype   # cache dtype
+
         self.image_resolution = model.visual.input_resolution  # for DataLoader
+        self.image_feat_size = model.visual.output_dim
 
         # we do not need the text_projection layer, delete it
         if hasattr(model, 'text_projection'):
@@ -60,6 +63,10 @@ class OnlineCLIP(nn.Module):
         # x.shape = [batch_size, n_ctx, transformer.width]
 
         return x
+
+    # @property
+    # def dtype(self):
+    #     return self.model.visual.conv1.weight.dtype
 
     def forward(self, x):
         raise RuntimeError("Do not call OnlineCLIP directly, use encode_image or encode_text!")
