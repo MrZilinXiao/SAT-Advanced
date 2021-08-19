@@ -55,6 +55,7 @@ class OnlineCLIP(nn.Module):
         x = self.model.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
 
         x = x + self.model.positional_embedding.type(self.dtype)
+        # 2021-08-20 00:11 embedding align with TextBERT
         x = x.permute(1, 0, 2)  # NLD -> LND
         x = self.model.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD

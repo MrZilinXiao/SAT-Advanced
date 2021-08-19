@@ -37,6 +37,7 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--use-clip-visual', action='store_true', default=False)  # online 2D CLIP feature
     parser.add_argument('--use-clip-language', action='store_true',
                         default=False)  # replace TextBERT, we now only possess `RN50x16` offline feature
+    parser.add_argument('--init-language', action='store_true', default=False)
 
     #
     # Non-optional arguments

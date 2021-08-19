@@ -24,7 +24,7 @@ class TextBert(BertPreTrainedModel):
 
     def forward(self, txt_inds, txt_mask, txt_type_mask=None):
         ## https://huggingface.co/transformers/v1.2.0/_modules/pytorch_transformers/modeling_bert.html
-        encoder_inputs = self.embeddings(txt_inds, token_type_ids=txt_type_mask)
+        encoder_inputs = self.embeddings(txt_inds, token_type_ids=txt_type_mask)  # indices -> embeddings 768
         attention_mask = txt_mask
 
         extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
@@ -46,7 +46,7 @@ class TextBert(BertPreTrainedModel):
             encoder_inputs,
             extended_attention_mask,
             head_mask=head_mask
-        )
+        )  # last layers hidden state
         seq_output = encoder_outputs[0]
         return seq_output
 

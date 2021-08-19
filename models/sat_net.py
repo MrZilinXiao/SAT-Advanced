@@ -123,11 +123,14 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                 num_hidden_layers=3,  # clip has 12 layers
                 num_attention_heads=12,
                 type_vocab_size=2)
-            self.text_bert = TextBert.from_pretrained(
+            self.text_bert = TextBert.from_pretrained(  # 有预训练
                 'bert-base-uncased',
                 config=text_bert_config,
                 mmt_mask=self.mmt_mask,
                 addlabel_words=self.addlabel_words)
+            if args.init_language:
+                logger.warning('DEBUG: We init weight of TextBERT to observe txt_cls_acc...')
+                self.text_bert.init_weights()
         else:  # use clip transformer
             logger.info('Using CLIP Online Language Encoder...')
             TEXT_BERT_HIDDEN_SIZE = 768  # CLIP fixed language feat dim
