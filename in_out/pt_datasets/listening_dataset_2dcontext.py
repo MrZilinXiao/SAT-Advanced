@@ -16,8 +16,6 @@ from in_out.pt_datasets.utils import check_segmented_object_order, sample_scan_o
 from in_out.pt_datasets.utils import instance_labels_of_context, mean_rgb_unit_norm_transform
 from data_generation.nr3d import decode_stimulus_string
 
-import clip
-
 from loguru import logger
 # from memory_profiler import profile
 import gc
@@ -77,7 +75,8 @@ class ListeningDataset(Dataset):
                 'bert-base-uncased')
             assert self.bert_tokenizer.encode(self.bert_tokenizer.pad_token) == [0]
         else:  # clip-BERT
-            self.clip_tokenizer = clip.tokenize
+            import clip
+            self.clip_tokenizer = partial(clip.tokenize, truncate=True)
 
         if not check_segmented_object_order(scans):
             raise ValueError
@@ -126,20 +125,19 @@ class ListeningDataset(Dataset):
     def __getitem__(self, index):
         res = dict()
         scan, target, tokens, text_tokens, is_nr3d = self.get_reference_data(index)
-        # ScannetScan Object, ThreeDObject Object, [24 + 2] ndarray, list of word str, bool flag of is_nr3d
+        # ScannetScan Object, ThreeDObject Object, [24 + 2] ndarray (from self.vocab), list of word str, bool flag of is_nr3d
         # TextBERT tokenize
         if not self.args.use_clip_language:
             token_inds = torch.zeros(self.max_seq_len, dtype=torch.long)
             indices = self.bert_tokenizer.encode(
                 ' '.join(text_tokens), add_special_tokens=True)
-            indices = indices[:self.max_seq_len]
+            indices = indices[:self.max_seq_len]  # TODO: encode之后取前max_seq_len个，这会丢失EOS！
             token_inds[:len(indices)] = torch.tensor(indices)
             token_num = torch.tensor(len(indices), dtype=torch.long)
-
         else:
-            clip_indices = self.clip_tokenizer(' '.join(text_tokens))  # have to remove batch_dim
-            clip_indices = clip_indices.squeeze(0)  # shape: [77] on cpu
-            token_num = torch.sum(clip_indices != 0)  #
+            clip_indices = self.clip_tokenizer(' '.join(text_tokens))  # 77-5=72
+            clip_indices = clip_indices.squeeze(0)  # have to remove batch_dim, shape: [77] on cpu
+            token_num = torch.sum(clip_indices != 0, dtype=torch.long)
         # if self.pretrain:
         #     ## entire seq replace for now
         #     contra_rand = random.random()
@@ -278,7 +276,7 @@ class ListeningDataset(Dataset):
 
         if not self.args.use_clip_language:
             res['tokens'] = tokens
-            res['token_inds'] = token_inds.numpy().astype(np.int64)
+            res['token_inds'] = token_inds.numpy().astype(np.int64)  # model takes these
             # res['token_num'] = token_num.numpy().astype(np.int64)
         else:
             res['clip_inds'] = clip_indices
@@ -306,8 +304,21 @@ class ListeningDataset(Dataset):
             # object_size = open('object_size.txt','a')
             # object_size.write('%s,%d\n'%(res['stimulus_id'],len(context[target_pos].points)))
             # object_size.close()
-        if self.evalmode:  ## strictly enforce no 2D context leak in eval mode
-            # TODO: not reasonable!! will miss those keys like 'feat2d' & 'coords_2d', which triggers 'KeyError' in standalone eval!
+        if self.evalmode:  # strictly enforce no 2D context leak in eval mode
+            if self.args.feat2d.startswith('ROI'):
+                featdim = 2048
+            elif self.args.feat2d.startswith('CLIP_add'):
+                featdim = 768
+            elif self.args.feat2d.startswith('CLIP'):
+                featdim = 768
+            else:
+                raise NotImplemented()
+            if self.args.clsvec2d:
+                featdim += self.num_class_dim
+            feat_2d = np.zeros((self.max_context_size, featdim)).astype(np.float32)
+            coords_2d = np.zeros((self.max_context_size, 4 + 12)).astype(np.float32)  # make empty feat_2d & coords_2d, since they do not matter
+            res['feat_2d'] = feat_2d
+            res['coords_2d'] = coords_2d
             return res
 
         # load cached 2D context information

@@ -145,11 +145,12 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--n-gpus', type=int, default=1, help='number gpu devices. [default: 1]')
     parser.add_argument('--batch-size', type=int, default=32, help='batch size per gpu. [default: 32]')
     # parser.add_argument('--save-args', type=str2bool, default=True, help='save arguments in a json.txt')
-    parser.add_argument('--save-args', action='store_true', default=True, help='save arguments in a json.txt')
+    parser.add_argument('--save-args', action='store_true', default=False, help='save arguments in a json.txt')
     parser.add_argument('--experiment-tag', type=str, default=None, help='will be used to name a subdir '
                                                                          'for log-dir if given')
     parser.add_argument('--wandb-log', action='store_true', default=False)
     parser.add_argument('--git-commit', action='store_true', default=False)
+    parser.add_argument('--analyze-evaluate', action='store_true', default=False)
     # parser.add_argument('--wandb-')
     # parser.add_argument('--cluster-pid', type=str, default=None)
 
@@ -173,8 +174,8 @@ def parse_arguments(notebook_options=None):
     else:
         args = parser.parse_args()
 
-    if not args.resume_path and not args.log_dir:
-        raise ValueError
+    if args.mode == 'train' and not args.resume_path and not args.log_dir:
+        raise ValueError('You have to indicate either resume_path or log_dir when training!')
 
     if args.config_file is not None:
         with open(args.config_file, 'r') as fin:

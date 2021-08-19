@@ -14,13 +14,16 @@ try:
 except:
     from torch.utils.tensorboard import SummaryWriter
 
+import wandb
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 
 
 class Visualizer():
-    def __init__(self, top_out_path):  # This will cause error in the very old train scripts
+    def __init__(self, top_out_path, use_wandb=False):  # This will cause error in the very old train scripts
         self.writer = SummaryWriter(top_out_path)
+        self.use_wandb = use_wandb
 
     # |visuals|: dictionary of images to save
     def log_images(self, visuals, step):
@@ -30,4 +33,6 @@ class Visualizer():
 
     # scalars: dictionary of scalar labels and values
     def log_scalars(self, scalars, step, main_tag='metrics'):
-        self.writer.add_scalars(main_tag=main_tag, tag_scalar_dict=scalars, global_step=step)
+        self.writer.add_scalars(main_tag=main_tag, tag_scalar_dict=scalars, global_step=step)   # hook not working...
+        if self.use_wandb:
+            wandb.log(scalars, step=step)

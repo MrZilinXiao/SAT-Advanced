@@ -23,37 +23,54 @@ python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 --transformer --experime
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit
 
-(ROI feat replicated)  Ongoing, slower due to lower batch_size: roi_feat/08-17-2021-09-39-20
+(ROI feat replicated)   0.480 (@epoch 93)
 python main.py --init-lr 0.0001 --batch-size=16 --gpu=3 --transformer --experiment-tag=roi_feat \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
---feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit
 
-(ROI evaluate, 有KeyError问题，稍后解决)
-python main.py --mode evaluate --init-lr 0.0001 --batch-size=16 --gpu=2 --transformer --experiment-tag=roi_feat \
---model mmt_referIt3DNet -scannet-file ~/keep_all_points_00_view_with_global_scan_alignment.pkl \
---resume-path /data/logs/roi_feat/08-15-2021-09-50-09/checkpoints/best_model.pth \
+(ROI feat replicated evaluate)
+CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=2 --transformer --experiment-tag=roi_feat \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+--resume-path /data/logs/roi_feat/08-17-2021-09-39-20/checkpoints/best_model.pth -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --unit-sphere-norm True \
---context_2d unaligned --mmt_mask train2d --save-args --n-workers 8
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --n-workers 4 --analyze-evaluate
+
+(ROI evaluate) 47.6+-0.2
+CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=2 --transformer --experiment-tag=roi_feat \
+--model mmt_referIt3DNet -scannet-file /dev/shm/keep_all_points_00_view_with_global_scan_alignment.pkl \
+--resume-path /data/logs/roi_feat/08-16-2021-19-38-29/checkpoints/best_model.pth -offline-2d-feat /data/meta-ScanNet/split_feat/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --unit-sphere-norm True \
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --n-workers 4 --analyze-evaluate
+
+# feat2d不再重要，只为了对齐shape
 
 e.g. 2: (CLIP_add feat)   Done: clip_add/08-16-2021-19-55-34   复现结果46.6
 python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 --transformer --experiment-tag=clip_add \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
---feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit
 
-e.g. 3: (CLIP_add norm feat)   Ongoing
+e.g. 3: (CLIP_add norm feat)   clip_add_norm/08-18-2021-10-01-32  0.476 (@epoch 95)
 CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 --transformer --experiment-tag=clip_add_norm \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4
+--save-args --norm-offline-feat --n-workers 4 --wandb-log --git-commit
 
-e.g. 4: (CLIP_add norm offline feat & CLIP language online encoder)
-CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=20 --gpu=1 --transformer --experiment-tag=clip_lang \
+(CLIP_add norm evaluate)  47.4 (0.2)
+CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=2 --transformer --experiment-tag=roi_feat \
+--model mmt_referIt3DNet -scannet-file /dev/shm/keep_all_points_00_view_with_global_scan_alignment.pkl \
+--resume-path /data/logs/clip_add/08-16-2021-19-55-34/checkpoints/best_model.pth -offline-2d-feat /data/meta-ScanNet/split_feat/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d --n-workers 4 --analyze-evaluate
+
+
+e.g. 4: (CLIP_add norm offline feat & CLIP language online encoder) 有问题，train_txt_cls_acc一直不涨
+CUDA_VISIBLE_DEVICES=0 python main.py --init-lr 0.0001 --batch-size=24 --gpu=0 --transformer --experiment-tag=clip_lang \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 --clip-backbone RN50x16 --use-clip-language \
@@ -198,7 +215,7 @@ if __name__ == '__main__':
     n_classes = len(class_to_idx) - 1  # -1 to ignore the <pad> class
     pad_idx = class_to_idx['pad']
 
-    model = instantiate_referit3d_net(args, vocab, n_classes).to(device)
+    model = instantiate_referit3d_net(args, vocab, n_classes).to(device)  # n_classes: number of instance labels
     # optimizer = optim.Adam(model.parameters(), lr=args.init_lr)
     # lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.65,
     #                                                           patience=5, verbose=True)
@@ -213,6 +230,12 @@ if __name__ == '__main__':
             backbone_name.append('text_bert.')  ## exclude text_bert_out_linear
             # backbone_name.append('object_encoder.')
             # backbone_name.append('cnt_object_encoder.')
+        if args.use_clip_visual:
+            backbone_name.append('clip_model.visual.')
+
+        if args.use_clip_language:
+            backbone_name.append('clip_model.transformer.')
+
         backbone_param, rest_param = [], []
         for kv in model.named_parameters():
             isbackbone = [int(key in kv[0]) for key in backbone_name]
@@ -257,31 +280,34 @@ if __name__ == '__main__':
         # perhaps best_test_acc, best_test_epoch, best_test_epoch =  unpickle...
         loaded_epoch, best_test_acc = load_state_dicts(args.resume_path, map_location=device, model=model)
         logger.info('Loaded a model stopped at epoch: {}.'.format(loaded_epoch))
-        if not args.fine_tune:  # just resume, not fine-tune
-            logger.info('Loaded a model that we do NOT plan to fine-tune.')
-            load_state_dicts(args.resume_path, optimizer=optimizer, lr_scheduler=lr_scheduler)
-            start_training_epoch = loaded_epoch + 1
-            best_test_epoch = loaded_epoch
-            # best_test_acc = lr_scheduler.best
-            if best_test_acc is not None:
-                logger.info('Loaded model had {} test-accuracy in the corresponding dataset used when trained.'.format(
-                    best_test_acc))
+        if args.mode == 'train':
+            if not args.fine_tune:  # just resume, not fine-tune, load optimizer & scheduler
+                logger.info('Loaded a model that we do NOT plan to fine-tune.')
+                load_state_dicts(args.resume_path, optimizer=optimizer, lr_scheduler=lr_scheduler)
+                start_training_epoch = loaded_epoch + 1
+                best_test_epoch = loaded_epoch
+                # best_test_acc = lr_scheduler.best
+                if best_test_acc is not None:
+                    logger.info('Loaded model had {} test-accuracy in the corresponding dataset used when trained.'.format(
+                        best_test_acc))
+                else:
+                    best_test_acc = -1  # to be compatible with older version
             else:
-                best_test_acc = -1  # to be compatible with older version
+                logger.info('Parameters that do not allow gradients to be back-propped:')
+                ft_everything = True
+                for name, param in model.named_parameters():
+                    if not param.requires_grad:
+                        logger.info(name)
+                        exist = False
+                if ft_everything:
+                    logger.info('None, all will be fine-tuned')
+                # if you fine-tune the previous epochs/accuracy are irrelevant.
+                dummy = args.max_train_epochs + 1 - start_training_epoch
+                logger.info('Ready to *fine-tune* the model for a max of {} epochs'.format(dummy))
         else:
-            logger.info('Parameters that do not allow gradients to be back-propped:')
-            ft_everything = True
-            for name, param in model.named_parameters():
-                if not param.requires_grad:
-                    logger.info(name)
-                    exist = False
-            if ft_everything:
-                logger.info('None, all wil be fine-tuned')
-            # if you fine-tune the previous epochs/accuracy are irrelevant.
-            dummy = args.max_train_epochs + 1 - start_training_epoch
-            logger.info('Ready to *fine-tune* the model for a max of {} epochs'.format(dummy))
+            logger.info('Loaded model parameters, ready for evaluating...')
 
-    if args.pretrain_path:  # not using for now
+    if args.pretrain_path:  # for evaluating abandoned
         load_model = torch.load(args.pretrain_path)
         pretrained_dict = load_model['model']
         model_dict = model.state_dict()
@@ -291,13 +317,13 @@ if __name__ == '__main__':
         model.load_state_dict(model_dict)
         logger.info("=> loaded pretrain model at {}"
                     .format(args.pretrain_path))
-        if 'best' in load_model['lr_scheduler']:
+        if 'best_test_acc' in load_model:
             logger.info('Loaded model had {} test-accuracy in the corresponding dataset used when trained.'.format(
-                load_model['lr_scheduler']['best']))
+                load_model['best_test_acc']))
 
     # Training.
     if args.mode == 'train':
-        train_vis = Visualizer(args.tensorboard_dir)
+        train_vis = Visualizer(args.tensorboard_dir, use_wandb=args.wandb_log)
         logger.info('Starting the training. Good luck!')
         eval_acc = 0.
 
@@ -399,7 +425,9 @@ if __name__ == '__main__':
         logger.info('Object-Clf-Accuracy: {:.4f}'.format(meters['test_object_cls_acc']))
         logger.info('Text-Clf-Accuracy {:.4f}:'.format(meters['test_txt_cls_acc']))
 
-        out_file = osp.join(args.checkpoint_dir, 'test_result.txt')
-        res = analyze_predictions(model, data_loaders['test'].dataset, class_to_idx, pad_idx, device,
-                                  args, out_file=out_file)
-        logger.info(res)
+        # out_file = osp.join(args.checkpoint_dir, 'test_result.txt')
+        if args.analyze_evaluate:
+            out_file = osp.join(args.checkpoint_dir, 'test_result.txt')
+            res = analyze_predictions(model, data_loaders['test'].dataset, class_to_idx, pad_idx, device,
+                                      args, out_file=out_file)
+            logger.info(res)

@@ -112,14 +112,15 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         # self.cnt_feat_layer_norm = BertLayerNorm(MMT_HIDDEN_SIZE)
         # self.cnt_bbox_layer_norm = BertLayerNorm(MMT_HIDDEN_SIZE)
         self.context_drop = nn.Dropout(0.1)
+
         if args.clip_backbone is not None:
             self.clip_model = OnlineCLIP(args)
 
         # Encoders for text
         if not args.use_clip_language:  # use TextBERT
             text_bert_config = BertConfig(
-                hidden_size=TEXT_BERT_HIDDEN_SIZE,
-                num_hidden_layers=3,
+                hidden_size=TEXT_BERT_HIDDEN_SIZE,  # 768
+                num_hidden_layers=3,  # clip has 12 layers
                 num_attention_heads=12,
                 type_vocab_size=2)
             self.text_bert = TextBert.from_pretrained(
@@ -187,12 +188,13 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         #                     nn.ReLU(),
         #                     nn.Linear(768, 768))
 
-    def __call__(self, batch: dict) -> dict:
+    def __call__(self, batch: dict, evaluating=False) -> dict:
         """
         batch带的key解释：
         context_size： samples的数量
         objects：3D object的稀疏采样
         ...
+        evaluating: 将不再读batch中的2D字段/生成2D feat
         """
         result = defaultdict(lambda: None)
 
@@ -219,17 +221,17 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
 
         obj_mmt_in = self.obj_feat_layer_norm(self.linear_obj_feat_to_mmt_in(objects_features)) + \
                      self.obj_bbox_layer_norm(self.linear_obj_bbox_to_mmt_in(batch['obj_offset']))  # obj_offset
-        # 3D features
 
+        # 3D features
         if 'feat_2d' in batch and self.args.norm_offline_feat:
             batch['feat_2d'] /= batch['feat_2d'].norm(dim=-1, keepdim=True)
 
-        if self.context_2d == 'aligned':  # 如果2D-3D已对齐
+        if self.context_2d == 'aligned':  # 如果2D-3D已对齐 abandoned params
             obj_mmt_in = obj_mmt_in + \
                          self.obj2d_feat_layer_norm(self.linear_2d_feat_to_mmt_in(batch['feat_2d'])) + \
                          self.obj2d_bbox_layer_norm(self.linear_2d_bbox_to_mmt_in(batch['coords_2d']))
 
-        obj_mmt_in = self.obj_drop(obj_mmt_in)
+        obj_mmt_in = self.obj_drop(obj_mmt_in)   # dropout for 3D feat
         obj_num = obj_mmt_in.size(1)  # N, obj_num, feat_size
         obj_mask = _get_mask(batch['context_size'].to(obj_mmt_in.device), obj_num)  # all proposals are non-empty
         # should be all 1, since context_size == obj_num == len(samples)
@@ -292,7 +294,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                 txt_mask=txt_mask,
                 txt_type_mask=txt_type_mask
             )  # N, lang_size, TEXT_BERT_HIDDEN_SIZE
-            txt_emb = self.text_bert_out_linear(text_bert_out)
+            txt_emb = self.text_bert_out_linear(text_bert_out)  # text_bert_hidden_size -> mmt_hidden_size
             # Classify the target instance label based on the text
             if self.language_clf is not None:
                 result['lang_logits'] = self.language_clf(text_bert_out[:, 0, :])   # language classifier only use [CLS] token
@@ -312,10 +314,11 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         )
 
         if self.args_mode == 'evaluate':
-            if not self.addlabel_words:
-                assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + obj_num))
-            else:
-                assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + 2 + obj_num * 2))  # why +2 ?
+            assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + 2 * obj_num))   # we just input zeros 2D when evaluating
+            # if not self.addlabel_words:
+            #     assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + obj_num))
+            # else:
+            #     assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + 2 + obj_num * 2))  # why +2 ?
         if self.args_mode != 'evaluate' and self.context_2d == 'unaligned':
             if not self.addlabel_words:
                 assert (mmt_results['mmt_seq_output'].shape[1] == (
@@ -332,26 +335,26 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         # result['logits'] = self.matching_cls(torch.cat((mmt_results['mmt_obj_output'],mmt_results['mmt_seq_output'][:,0,:].unsqueeze(1).repeat(1,mmt_results['mmt_obj_output'].shape[1],1)),dim=-1))
         # result['logits'] = torch.bmm(mmt_results['mmt_obj_output'],mmt_results['mmt_seq_output'][:,0,:].unsqueeze(2)).squeeze(2)
         # result['mmt_texttoken_output'] = mmt_results['mmt_txt_output'][:,-(obj_num+1):-1,:]
-        if self.loss_proj:
-            if self.addlabel_words:
-                result['mmt_texttoken2d_output'] = self.fw_text2dfeat(
-                    mmt_results['mmt_txt_output'][:, -(obj_num + 1):-1, :])
-                result['mmt_texttoken3d_output'] = self.fw_text3dfeat(
-                    mmt_results['mmt_txt_output'][:, -(obj_num + 1):-1, :])
-            result['mmt_obj_output'] = self.fw_3dfeat(mmt_results['mmt_obj_output'])
-        else:
-            if self.addlabel_words:
-                result['mmt_texttoken2d_output'] = mmt_results['mmt_txt_output'][:, -(obj_num + 1):-1, :]
-                result['mmt_texttoken3d_output'] = mmt_results['mmt_txt_output'][:, -(obj_num + 1):-1, :]
-            result['mmt_obj_output'] = mmt_results['mmt_obj_output']
+        # if self.loss_proj:
+        #     # if self.addlabel_words:
+        #     #     result['mmt_texttoken2d_output'] = self.fw_text2dfeat(
+        #     #         mmt_results['mmt_txt_output'][:, -(obj_num + 1):-1, :])
+        #     #     result['mmt_texttoken3d_output'] = self.fw_text3dfeat(
+        #     #         mmt_results['mmt_txt_output'][:, -(obj_num + 1):-1, :])
+        #     result['mmt_obj_output'] = self.fw_3dfeat(mmt_results['mmt_obj_output'])
+        # else:
+        #     # if self.addlabel_words:
+        #     #     result['mmt_texttoken2d_output'] = mmt_results['mmt_txt_output'][:, -(obj_num + 1):-1, :]
+        #     #     result['mmt_texttoken3d_output'] = mmt_results['mmt_txt_output'][:, -(obj_num + 1):-1, :]
+        result['mmt_obj_output'] = mmt_results['mmt_obj_output']
         if self.context_2d == 'unaligned':
-            result['logits_2D'] = self.matching_cls_2D(mmt_results['mmt_obj_output_2D'])
+            result['logits_2D'] = self.matching_cls_2D(mmt_results['mmt_obj_output_2D'])  # obj_num, 768 -> obj_num, 1
             # result['logits_2D'] = self.matching_cls_2D(torch.cat((mmt_results['mmt_obj_output_2D'],mmt_results['mmt_seq_output'][:,0,:].unsqueeze(1).repeat(1,mmt_results['mmt_obj_output_2D'].shape[1],1)),dim=-1))
             # result['logits_2D'] = torch.bmm(mmt_results['mmt_obj_output_2D'],mmt_results['mmt_seq_output'][:,0,:].unsqueeze(2)).squeeze(2)
-            if self.loss_proj:
-                result['mmt_obj_output_2D'] = self.fw_2dfeat(mmt_results['mmt_obj_output_2D'])
-            else:
-                result['mmt_obj_output_2D'] = mmt_results['mmt_obj_output_2D']
+            # if self.loss_proj:
+            #     result['mmt_obj_output_2D'] = self.fw_2dfeat(mmt_results['mmt_obj_output_2D'])
+            # else:
+            result['mmt_obj_output_2D'] = mmt_results['mmt_obj_output_2D']
         return result
 
 
@@ -474,7 +477,7 @@ def instantiate_referit3d_net(args: argparse.Namespace, vocab: Vocabulary, n_obj
 ## pad at the end; used anyway by obj, ocr mmt encode
 def _get_mask(nums, max_num):
     """
-    0在PAD住的位置上，non_pad的规则：[0, 1, 2, ..., max_num] < nums
+    0在PAD住的位置上，在max_num的seq上不mask前nums个element
     """
     # non_pad_mask: b x lq, torch.float32, 0. on PAD
     batch_size = nums.size(0)

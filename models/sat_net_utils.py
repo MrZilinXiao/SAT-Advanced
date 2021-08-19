@@ -478,9 +478,9 @@ def evaluate_on_dataset(model, data_loader, criteria, device, pad_idx, args, ran
         np.random.seed(args.random_seed)
 
     batch_keys = make_batch_keys(args)
-
+    pbar = tqdm.tqdm(data_loader, total=len(data_loader))
     # for batch in tqdm.tqdm(data_loader):
-    for batch in data_loader:
+    for batch in pbar:
         # Move data to gpu
         for k in batch_keys:
             if k in batch:

@@ -1,5 +1,5 @@
 import torch
-import torch.nn.functional as F
+from loguru import logger
 
 
 def get_siamese_features(net, in_features, aggregator=None):
@@ -36,7 +36,7 @@ def save_state_dicts(checkpoint_file, epoch=None, best_test_acc=None, **kwargs):
     torch.save(checkpoint, checkpoint_file)
 
 
-def load_state_dicts(checkpoint_file, map_location=None, **kwargs):
+def load_state_dicts(checkpoint_file, map_location=None, **kwargs):  # 这个是resume用的
     """Load torch items from saved state_dictionaries.
     """
     if map_location is None:
@@ -45,8 +45,25 @@ def load_state_dicts(checkpoint_file, map_location=None, **kwargs):
         checkpoint = torch.load(checkpoint_file, map_location=map_location)
 
     ## default load
-    for key, value in kwargs.items():
-        value.load_state_dict(checkpoint[key])
+    # if not is_eval:
+    #     for key, value in kwargs.items():  # strict load everything
+    #         value.load_state_dict(checkpoint[key])
+    # else:
+    for key, value in kwargs.items():  # load model only
+        # if key != 'model':
+        #     continue
+        kwargs = {}
+        if key == 'model':
+            kwargs['strict'] = False
+        load_status = value.load_state_dict(checkpoint[key], **kwargs)
+        if load_status is not None and str(load_status) != '<All keys matched successfully>':
+            logger.warning("Caught some errors when loading state_dict for {}:\n".format(key) +
+                           f"missing keys: {load_status.missing_keys}\nunexpected_keys: {load_status.unexpected_keys}")
+        # load_status = value.load_state_dict(checkpoint[key], strict=False)
+        # if str(load_status) != '<All keys matched successfully>':
+        #     logger.warning("Caught some errors when loading state_dict for {}:\n".format(key) +
+        #                    f"missing keys: {load_status.missing_keys}\nunexpected_keys: {load_status.unexpected_keys}")
+
     # ## pretrain mismatch load
     # for key, value in kwargs.items():
     #     pretrained_dict = checkpoint[key]

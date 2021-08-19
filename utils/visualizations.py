@@ -1,7 +1,7 @@
 import IPython
 from IPython.core.display import display
 
-from referit3d.utils.plotting import bold_string
+from utils.plotting import bold_string
 
 server_prefix = 'https://gibsonannotation.com/view.html?sti='
 server_prefix_no_boxes = 'http://gibsonannotation.com:3000/view.html?sti='

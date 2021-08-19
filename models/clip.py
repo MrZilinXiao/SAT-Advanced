@@ -69,4 +69,4 @@ class OnlineCLIP(nn.Module):
     #     return self.model.visual.conv1.weight.dtype
 
     def forward(self, x):
-        raise RuntimeError("Do not call OnlineCLIP directly, use encode_image or encode_text!")
+        raise NotImplementedError("Do not call OnlineCLIP directly, use encode_image or encode_text!")

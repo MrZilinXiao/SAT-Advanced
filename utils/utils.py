@@ -189,9 +189,10 @@ def create_logger(log_dir):
     logger.add(sys.stderr,
                format="{time} {level} {message}",
                level="INFO")
-    logger.add(os.path.join(log_dir, "log.txt"),
-               format="{time} {level} {message}",
-               level="DEBUG")
+    if log_dir is not None:
+        logger.add(os.path.join(log_dir, "log.txt"),
+                   format="{time} {level} {message}",
+                   level="DEBUG")
     return logger
 
 
@@ -208,6 +209,6 @@ def wandb_init(args):
     wandb.init(project='SAT-CLIP',
                entity='godkillerxiao',
                config=vars(args),
-               sync_tensorboard=True,
+               # sync_tensorboard=True,
                name='-'.join(args.log_dir.split('/')[-2:])
                )
