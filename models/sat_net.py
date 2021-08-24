@@ -134,6 +134,9 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         else:  # use clip transformer
             logger.info('Using CLIP Online Language Encoder...')
             TEXT_BERT_HIDDEN_SIZE = 768  # CLIP fixed language feat dim
+            if args.init_language:
+                logger.warning('DEBUG: We init weight of the ENTIRE CLIP to observe txt_cls_acc...')
+                self.clip_model.model.initialize_parameters()
 
         if TEXT_BERT_HIDDEN_SIZE != MMT_HIDDEN_SIZE:
             self.text_bert_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE)
@@ -306,7 +309,10 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             txt_mask = _get_mask(batch['token_num'].to(batch['clip_inds'].device),  # how many token are not masked
                                  batch['clip_inds'].size(1))
             if self.language_clf is not None:
-                result['lang_logits'] = self.language_clf(txt_emb[:, 0, :])  # TODO: is CLIP also use [CLS] token?
+                # result['lang_logits'] = self.language_clf(txt_emb[:, 0, :])  # TODO: is CLIP also use [CLS] token?
+                # !! BUG Found !! txt_emb[:, 0, :] will always be the same in clip encoder
+                txt_cls_emb = self.clip_model.classify_text(batch['clip_inds'], txt_emb)  # N, 768
+                result['lang_logits'] = self.language_clf(txt_cls_emb)
 
         mmt_results = self.mmt(
             txt_emb=txt_emb,  # N, lang_size, MMT_HIDDEN_SIZE

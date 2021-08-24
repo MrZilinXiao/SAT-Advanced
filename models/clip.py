@@ -25,8 +25,9 @@ class OnlineCLIP(nn.Module):
         self.image_feat_size = model.visual.output_dim
 
         # we do not need the text_projection layer, delete it
-        if hasattr(model, 'text_projection'):
-            del model.text_projection
+        # if not args.init_language and hasattr(model, 'text_projection'):
+        #     del model.text_projection
+        # 2021-08-23 21:03:01 保留text_projection去做lang_clf！
 
         if not pretrained_clip:  # if resume training, we need init CLIP model (it will also be overwritten in load_state_dict(), just for insurance)
             model.initialize_parameters()
@@ -63,6 +64,13 @@ class OnlineCLIP(nn.Module):
 
         # x.shape = [batch_size, n_ctx, transformer.width]
 
+        return x
+
+    def classify_text(self, text, text_embedding):   # output text classifier logits following CLIP-style
+        if not self.args.use_clip_language:
+            raise RuntimeError("clip language branch not enabled!")
+
+        x = text_embedding[torch.arange(text_embedding.shape[0]), text.argmax(dim=-1)] @ self.model.text_projection
         return x
 
     # @property

@@ -70,7 +70,7 @@ CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-s
 
 
 e.g. 4: (CLIP_add norm offline feat & CLIP language online encoder) 有问题，train_txt_cls_acc一直不涨
-CUDA_VISIBLE_DEVICES=0 python main.py --init-lr 0.0001 --batch-size=24 --gpu=0 --transformer --experiment-tag=clip_lang \
+CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=24 --gpu=1 --transformer --experiment-tag=clip_lang \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 --clip-backbone RN50x16 --use-clip-language \
@@ -84,7 +84,14 @@ CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 -
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit --init-language
-
+(重置CLIP)
+CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=24 --gpu=1 --transformer --experiment-tag=clip_lang \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--clip-backbone RN50x16 --use-clip-language \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-offline-feat --n-workers 4 --init-language
 
 """
 
