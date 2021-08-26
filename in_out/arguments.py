@@ -37,7 +37,9 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--use-clip-visual', action='store_true', default=False)  # online 2D CLIP feature
     parser.add_argument('--use-clip-language', action='store_true',
                         default=False)  # replace TextBERT, we now only possess `RN50x16` offline feature
+    parser.add_argument('--direct-eos', action='store_true', default=False)   # only applicable if use-clip-language
     parser.add_argument('--init-language', action='store_true', default=False)
+    parser.add_argument('--rgb-path', type=str, default="")   # if online feature, we need 2D RGB input
 
     #
     # Non-optional arguments
@@ -206,6 +208,14 @@ def parse_arguments(notebook_options=None):
     if args.use_clip_visual or args.use_clip_language:
         if args.clip_backbone is None:
             raise ValueError('You can not use clip online features if not indicating clip_backbone!')
+
+    if args.use_clip_visual:
+        if args.rgb_path == "":
+            raise ValueError("You need to indicate rgb_path when use_clip_visual is enabled!")
+        logger.info("Using {} as RGB input...".format(args.rgb_path))
+
+    if not args.use_clip_language and args.direct_eos:
+        raise ValueError("direct-eos is only applicable if use-clip-language is enabled!")
 
     if args.clip_backbone is not None:
         if not (args.use_clip_visual or args.use_clip_language):  # indicate a backbone but not using it

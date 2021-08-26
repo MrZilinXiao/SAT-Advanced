@@ -69,8 +69,10 @@ class OnlineCLIP(nn.Module):
     def classify_text(self, text, text_embedding):   # output text classifier logits following CLIP-style
         if not self.args.use_clip_language:
             raise RuntimeError("clip language branch not enabled!")
-
-        x = text_embedding[torch.arange(text_embedding.shape[0]), text.argmax(dim=-1)] @ self.model.text_projection
+        x = text_embedding[torch.arange(text_embedding.shape[0]), text.argmax(dim=-1)]
+        if not self.args.direct_eos:
+            x = x @ self.model.text_projection
+        # the last [EOS] -> faeture representation, decide whether using a projection
         return x
 
     # @property

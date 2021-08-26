@@ -78,13 +78,7 @@ CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=24 --gpu=1 -
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
 --save-args --norm-offline-feat --n-workers 4 --wandb-log --git-commit
 
-(没问题的baseline，但重置TextBERT权重来观察train_txt_cls_acc)
-CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 --transformer --experiment-tag=roi_feat_init_textbert \
---model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
--offline-2d-feat /data/meta-ScanNet/split_feat/ \
--referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
---feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit --init-language
-(重置CLIP)
+(重置CLIP)  clip_lang/08-26-2021-12-43-11
 CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=24 --gpu=1 --transformer --experiment-tag=clip_lang \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
@@ -92,6 +86,24 @@ CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=24 --gpu=1 -
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
 --save-args --norm-offline-feat --n-workers 4 --init-language
+
+(之前ok的clip-add-norm base，但重置一下textbert，看看bert预训练的消融 -- 分析原因的实验)  clip_add_norm/08-26-2021-16-41-50
+CUDA_VISIBLE_DEVICES=0 python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 --transformer --experiment-tag=clip_add_norm \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ --init-language \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-offline-feat --n-workers 4 --wandb-log --git-commit
+
+(只用EOS不做text_projection的CLIP-direct)
+CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 --transformer --experiment-tag=clip_lang_eos \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--clip-backbone RN50x16 --use-clip-language \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-offline-feat --n-workers 4 --direct-eos
+
 
 """
 
@@ -264,7 +276,7 @@ if __name__ == '__main__':
         sum_backbone = sum([param.nelement() for param in backbone_param])
         sum_fusion = sum([param.nelement() for param in rest_param])
         sum_all = sum([param.nelement() for param in model.parameters()])
-        logger.info('backbone, fusion module parameters:', sum_backbone, sum_fusion, sum_all)
+        logger.info('backbone, fusion module parameters: {}, {}, {}'.format(sum_backbone, sum_fusion, sum_all))
 
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.65,
                                                               patience=10 if args.patience >= 30 else 5, verbose=True)
