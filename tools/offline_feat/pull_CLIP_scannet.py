@@ -12,6 +12,9 @@ device = torch.device('cuda:1')
 # model, preprocess = clip.load("ViT-B/16", device=device)
 # # model, preprocess = clip.load("RN50x4", device=device)
 model, preprocess = clip.load("RN50x16", device=device)
+
+model.eval()  # newly added
+
 # clipdim=512
 clipdim = 768
 

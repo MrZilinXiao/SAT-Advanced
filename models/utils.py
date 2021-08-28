@@ -1,5 +1,24 @@
 import torch
 from loguru import logger
+from torch import nn
+
+
+def set_layer(layer, requires_grad):
+    assert isinstance(layer, nn.Module)
+    for child in layer.children():
+        for param in child.parameters():
+            param.requires_grad = requires_grad
+
+
+def set_param(param, requires_grad):
+    assert isinstance(param, nn.Parameter)
+    param.requires_grad = requires_grad
+
+
+def set_embed_or_standalone_layer(embed, requires_grad):
+    # assert isinstance(embed, nn.Embedding)
+    for param in embed.parameters():
+        param.requires_grad = requires_grad
 
 
 def get_siamese_features(net, in_features, aggregator=None):

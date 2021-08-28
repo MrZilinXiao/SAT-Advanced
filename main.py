@@ -95,15 +95,23 @@ CUDA_VISIBLE_DEVICES=0 python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 -
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
 --save-args --norm-offline-feat --n-workers 4 --wandb-log --git-commit
 
-(只用EOS不做text_projection的CLIP-direct)
+(只用EOS不做text_projection的CLIP-direct)  clip_lang_eos/08-26-2021-23-39-59
 CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 --transformer --experiment-tag=clip_lang_eos \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 --clip-backbone RN50x16 --use-clip-language \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4 --direct-eos
+--save-args --norm-offline-feat --n-workers 4 --direct-eos --wandb-log --git-commit
 
+(只用EOS，freeze CLIP language + learnable projection, 修复了clip backbone的学习率问题)
+CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=26 --gpu=3 --transformer --experiment-tag=clip_lang_eos_freeze_proj \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--clip-backbone RN50x16 --use-clip-language \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-offline-feat --n-workers 4 --direct-eos --freeze-clip-language --add-clip-proj --wandb-log --git-commit
 
 """
 
@@ -169,7 +177,7 @@ if __name__ == '__main__':
         wandb_init(args)
 
     if args.git_commit:
-        save_code_to_git('-'.join(args.log_dir.split('/')[-2:]))   # extract the last two parts of args.logdir
+        save_code_to_git('-'.join(args.log_dir.split('/')[-2:]))  # extract the last two parts of args.logdir
 
     logger = create_logger(args.log_dir)  # setting a global logger
 
@@ -249,7 +257,8 @@ if __name__ == '__main__':
     # make sure backbone holds 1/10 lr
     same_backbone_lr = False
     if same_backbone_lr:
-        optimizer = optim.Adam(model.parameters(), lr=args.init_lr)
+        # filter(lambda p: p.requires_grad, net.parameters())
+        optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=args.init_lr)
     else:
         backbone_name = []
         if args.transformer:
@@ -257,10 +266,10 @@ if __name__ == '__main__':
             # backbone_name.append('object_encoder.')
             # backbone_name.append('cnt_object_encoder.')
         if args.use_clip_visual:
-            backbone_name.append('clip_model.visual.')
+            backbone_name.append('clip_model.model.visual.')
 
         if args.use_clip_language:
-            backbone_name.append('clip_model.transformer.')
+            backbone_name.append('clip_model.model.transformer.')
 
         backbone_param, rest_param = [], []
         for kv in model.named_parameters():
@@ -269,9 +278,9 @@ if __name__ == '__main__':
                 backbone_param.append(kv[1])
             else:
                 rest_param.append(kv[1])
-        optimizer = optim.Adam([{'params': rest_param},
-                                {'params': backbone_param, 'lr': args.init_lr / 10.}],
-                               lr=args.init_lr)  # text_bert -> 1/10 LR
+        optimizer = optim.Adam([{'params': filter(lambda p: p.requires_grad, rest_param)},
+                                {'params': filter(lambda p: p.requires_grad, backbone_param), 'lr': args.init_lr / 10.}],
+                               lr=args.init_lr)  # text_bert or other backbone -> 1/10 LR
 
         sum_backbone = sum([param.nelement() for param in backbone_param])
         sum_fusion = sum([param.nelement() for param in rest_param])
@@ -314,8 +323,9 @@ if __name__ == '__main__':
                 best_test_epoch = loaded_epoch
                 # best_test_acc = lr_scheduler.best
                 if best_test_acc is not None:
-                    logger.info('Loaded model had {} test-accuracy in the corresponding dataset used when trained.'.format(
-                        best_test_acc))
+                    logger.info(
+                        'Loaded model had {} test-accuracy in the corresponding dataset used when trained.'.format(
+                            best_test_acc))
                 else:
                     best_test_acc = -1  # to be compatible with older version
             else:

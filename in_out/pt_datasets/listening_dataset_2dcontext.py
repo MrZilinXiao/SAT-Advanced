@@ -81,6 +81,8 @@ class ListeningDataset(Dataset):
         if not check_segmented_object_order(scans):
             raise ValueError
 
+        self.extract_text = False
+
     def __len__(self):
         return len(self.references)
         # return int(len(self.references)//3.293)
@@ -131,13 +133,23 @@ class ListeningDataset(Dataset):
             token_inds = torch.zeros(self.max_seq_len, dtype=torch.long)
             indices = self.bert_tokenizer.encode(
                 ' '.join(text_tokens), add_special_tokens=True)
-            indices = indices[:self.max_seq_len]  # TODO: encode之后取前max_seq_len个，这会丢失EOS！
+            indices = indices[:self.max_seq_len]  # TODO: encode之后取前max_seq_len个，这会丢失EOS嘛！
             token_inds[:len(indices)] = torch.tensor(indices)
             token_num = torch.tensor(len(indices), dtype=torch.long)
         else:
-            clip_indices = self.clip_tokenizer(' '.join(text_tokens))  # 77-5=72
+            clip_indices = self.clip_tokenizer(' '.join(text_tokens))
             clip_indices = clip_indices.squeeze(0)  # have to remove batch_dim, shape: [77] on cpu
             token_num = torch.sum(clip_indices != 0, dtype=torch.long)
+
+        if self.extract_text:  # for temporary extractor
+            if not self.args.use_clip_language:
+                res['tokens'] = tokens
+                res['token_inds'] = token_inds.numpy().astype(np.int64)  # model takes these
+                # res['token_num'] = token_num.numpy().astype(np.int64)
+            else:
+                res['clip_inds'] = clip_indices
+            res['csv_index'] = index
+            return res
         # if self.pretrain:
         #     ## entire seq replace for now
         #     contra_rand = random.random()

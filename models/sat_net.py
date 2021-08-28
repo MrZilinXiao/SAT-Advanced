@@ -4,15 +4,9 @@ import argparse
 from torch import nn
 from collections import defaultdict
 
-# from pytorch_transformers.modeling_bert import (
-#     BertLayerNorm, BertEmbeddings, BertEncoder, BertConfig,
-#     BertPreTrainedModel
-# )
-
 from models.mmt_module import *
-from models.clip import OnlineCLIP
+from models.clip_utils import OnlineCLIP
 
-# from . import DGCNN
 from models.default_blocks import *
 from models.utils import get_siamese_features
 from in_out.vocabulary import Vocabulary
@@ -105,7 +99,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
 
         # encoder for context object
 
-        # duplicated! 2021-08-17 20:27:33 comment by Zilin
+        # duplicated! 2021-08-17 20:27:33 comment by Zilin 已弃用的参数
         # self.cnt_object_encoder = single_object_encoder(768)
         # self.cnt_linear_obj_feat_to_mmt_in = nn.Linear(visudim, MMT_HIDDEN_SIZE)
         # self.cnt_linear_obj_bbox_to_mmt_in = nn.Linear(4, MMT_HIDDEN_SIZE)
@@ -137,10 +131,15 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             if args.init_language:
                 logger.warning('DEBUG: We init weight of the ENTIRE CLIP to observe txt_cls_acc...')
                 self.clip_model.model.initialize_parameters()
+            if args.freeze_clip_language:
+                self.clip_model.freeze_text()
+            if args.add_clip_proj:
+                self.clip_lang_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE)
+                # a learnable projection from frozen CLIP to MMT
 
         if TEXT_BERT_HIDDEN_SIZE != MMT_HIDDEN_SIZE:
             self.text_bert_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE)
-        else:
+        else:  # by default goes here
             self.text_bert_out_linear = nn.Identity()
 
         # if args.feat2d=='clsvec':
@@ -163,13 +162,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             type_vocab_size=2)
         self.mmt = MMT(self.mmt_config, context_2d=self.context_2d, mmt_mask=self.mmt_mask,
                        addlabel_words=self.addlabel_words)
-        # self.mmt = MMT.from_pretrained(
-        #     'bert-base-uncased', config=self.mmt_config
-        # )
-        # self.lang_cls = nn.Sequential(
-        #     nn.Linear(MMT_HIDDEN_SIZE, num_class),
-        #     # nn.Dropout()
-        # )
+
         self.matching_cls = MatchingLinear(input_size=MMT_HIDDEN_SIZE)
         if self.context_2d == 'unaligned':
             self.matching_cls_2D = MatchingLinear(input_size=MMT_HIDDEN_SIZE)
@@ -262,7 +255,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             obj_mmt_in = torch.cat([obj_mmt_in, context_obj_mmt_in], dim=1)  # [N, 2 * obj_num, feat_size]
             obj_mask = torch.cat([obj_mask, context_obj_mask], dim=1)
 
-        # if 'context_objects' in batch:  # or 'closest_context_objects' in batch or 'rand_context_objects' in batch:
+        # if 'context_objects' in batch:  # context objects 已弃用的参数
         #     # context objects是一系列3D distractors，包括target_object
         #     # 有必要context objects吗？论文里没提到
         #     context_object = batch[
@@ -311,7 +304,10 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             if self.language_clf is not None:
                 # result['lang_logits'] = self.language_clf(txt_emb[:, 0, :])
                 # !! BUG Found !! txt_emb[:, 0, :] will always be the same in clip encoder
+
                 txt_cls_emb = self.clip_model.classify_text(batch['clip_inds'], txt_emb)  # N, 768
+                if self.args.add_clip_proj:
+                    txt_emb = self.clip_lang_out_linear(txt_emb)  # txt_dim remains the same
                 result['lang_logits'] = self.language_clf(txt_cls_emb)
 
         mmt_results = self.mmt(
@@ -394,50 +390,6 @@ def instantiate_referit3d_net(args: argparse.Namespace, vocab: Vocabulary, n_obj
         print('Adding an object-classification loss.')
         object_clf = object_decoder_for_clf(geo_out_dim, n_obj_classes)
 
-    # if args.model.startswith('referIt3DNet'):  # baseline method
-    #     # make a language encoder
-    #     lang_encoder = token_encoder(vocab=vocab,
-    #                                  word_embedding_dim=args.word_embedding_dim,
-    #                                  lstm_n_hidden=lang_out_dim,
-    #                                  word_dropout=args.word_dropout,
-    #                                  random_seed=args.random_seed)
-    #
-    #     language_clf = None
-    #     if args.lang_cls_alpha > 0:
-    #         print('Adding a text-classification loss.')
-    #         language_clf = text_decoder_for_clf(lang_out_dim, n_obj_classes)
-    #         # typically there are less active classes for text, but it does not affect the attained text-clf accuracy.
-    #
-    #     # we will use a DGCNN.
-    #     print('Instantiating a classic DGCNN')
-    #
-    #     graph_in_dim = geo_out_dim
-    #     obj_lang_clf_in_dim = args.graph_out_dim
-    #
-    #     if args.language_fusion in ['before', 'both']:
-    #         graph_in_dim += lang_out_dim
-    #
-    #     if args.language_fusion in ['after', 'both', 'all']:
-    #         obj_lang_clf_in_dim += lang_out_dim
-    #
-    #     graph_encoder = DGCNN(initial_dim=graph_in_dim,
-    #                           out_dim=args.graph_out_dim,
-    #                           k_neighbors=args.knn,
-    #                           intermediate_feat_dim=args.dgcnn_intermediate_feat_dim,
-    #                           subtract_from_self=True)
-    #
-    #     object_language_clf = object_lang_clf(obj_lang_clf_in_dim)
-    #
-    #     model = ReferIt3DNet(
-    #         args=args,
-    #         object_encoder=object_encoder,
-    #         language_encoder=lang_encoder,
-    #         graph_encoder=graph_encoder,
-    #         object_clf=object_clf,
-    #         language_clf=language_clf,
-    #         object_language_clf=object_language_clf)
-    #
-    # elif args.model.startswith('mmt') and args.transformer:
     if args.model.startswith('mmt') and args.transformer:
         print('Instantiating a MMT')
         lang_out_dim = 768
@@ -448,22 +400,6 @@ def instantiate_referit3d_net(args: argparse.Namespace, vocab: Vocabulary, n_obj
             language_clf = text_decoder_for_clf(lang_out_dim, n_obj_classes)
             # typically there are less active classes for text, but it does not affect the attained text-clf accuracy.
 
-        # graph_in_dim = geo_out_dim
-        # obj_lang_clf_in_dim = args.graph_out_dim
-
-        # if args.language_fusion in ['before', 'both']:
-        #     graph_in_dim += lang_out_dim
-
-        # if args.language_fusion in ['after', 'both', 'all']:
-        #     obj_lang_clf_in_dim += lang_out_dim
-
-        # graph_encoder = DGCNN(initial_dim=graph_in_dim,
-        #                       out_dim=args.graph_out_dim,
-        #                       k_neighbors=args.knn,
-        #                       intermediate_feat_dim=args.dgcnn_intermediate_feat_dim,
-        #                       subtract_from_self=True)
-
-        # object_language_clf = object_lang_clf(obj_lang_clf_in_dim)
         model = MMT_ReferIt3DNet(
             args=args,
             num_class=n_obj_classes,

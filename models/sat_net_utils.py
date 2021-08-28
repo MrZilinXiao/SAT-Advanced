@@ -450,7 +450,7 @@ def compute_losses(batch, res, criterion_dict, args):
 
     if args.lang_cls_alpha > 0:
         criterion = criterion_dict['lang_logits']
-        lang_clf_loss = criterion(res['lang_logits'], batch['target_class'])   # language logits与object classification(只分类target class的objects)
+        lang_clf_loss = criterion(res['lang_logits'], batch['target_class'])   # language logits与instance class的分类（这句话描述的是哪种instance）
         if args.s_vs_n_weight is not None:
             lang_clf_loss = lang_clf_loss * weights
             lang_clf_loss = lang_clf_loss.sum() / len(lang_clf_loss)
