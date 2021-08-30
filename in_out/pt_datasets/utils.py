@@ -46,6 +46,41 @@ def dataset_to_dataloader(dataset, split, batch_size, n_workers, pin_memory=Fals
     return data_loader
 
 
+def extractor_dataset_to_dataloader(dataset, split, batch_size, n_workers, pin_memory=False, seed=None):
+    """
+    :param dataset:
+    :param split:
+    :param batch_size:
+    :param n_workers:
+    :param pin_memory:
+    :param seed:
+    :return:
+    """
+    batch_size_multiplier = 64
+    b_size = int(batch_size_multiplier)
+
+    drop_last = False
+    # if split == 'train' and len(dataset) % b_size == 1:
+    #     print('dropping last batch during training')
+    #     drop_last = True
+
+    shuffle = False
+
+    worker_init_fn = lambda x: np.random.seed(seed)
+    if split == 'test':
+        if type(seed) is not int:
+            warnings.warn('Test split is not seeded in a deterministic manner.')
+
+    data_loader = DataLoader(dataset,
+                             batch_size=b_size,
+                             num_workers=n_workers,
+                             shuffle=shuffle,
+                             drop_last=drop_last,
+                             pin_memory=pin_memory,
+                             worker_init_fn=worker_init_fn)
+    return data_loader
+
+
 def sample_scan_object(object, n_points):
     sample = object.sample(n_samples=n_points)
     return np.concatenate([sample['xyz'], sample['color']], axis=1)
@@ -134,7 +169,7 @@ def mean_rgb_unit_norm_transform(segmented_objects, mean_rgb, unit_norm, epsilon
         # max_dist[max_dist < epsilon_dist] = 1  # take care of tiny point-clouds, i.e., padding
         # xyz /= np.expand_dims(np.expand_dims(max_dist, -1), -1)
         # segmented_objects[:, :, :3] = xyz
-    # return segmented_objects
+        # return segmented_objects
         xyz = segmented_objects[:, :, :3]
         mean_center = xyz.mean(axis=1)
         xyz -= np.expand_dims(mean_center, 1)
@@ -144,6 +179,6 @@ def mean_rgb_unit_norm_transform(segmented_objects, mean_rgb, unit_norm, epsilon
         max_dist[max_dist < epsilon_dist] = 1  # take care of tiny point-clouds, i.e., padding
         xyz /= np.expand_dims(np.expand_dims(max_dist, -1), -1)
         segmented_objects[:, :, :3] = xyz
-        mean_center = np.concatenate((mean_center, np.expand_dims(max_dist, 1)),axis=1)
+        mean_center = np.concatenate((mean_center, np.expand_dims(max_dist, 1)), axis=1)
 
     return segmented_objects, mean_center

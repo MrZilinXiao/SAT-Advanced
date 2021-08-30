@@ -7,26 +7,40 @@ CUDA_VISIBLE_DEVICES=3 python3 split_feat.py --batch-size=36 --gpu=3 --transform
 --clip-backbone RN50x16 --use-clip-language \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---norm-offline-feat --n-workers 4
+--norm-offline-feat --n-workers 4 --extract-text
+
+usage (text bert encoder):
+CUDA_VISIBLE_DEVICES=3 python3 split_feat.py --batch-size=36 --gpu=3 --transformer --experiment-tag=clip_lang_eos \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--norm-offline-feat --n-workers 4 --extract-text
 """
 from collections import defaultdict
 
 import os
+
+import numpy as np
 import torch
 from in_out.arguments import parse_arguments
 from in_out.neural_net_oriented import compute_auxiliary_data, trim_scans_per_referit3d_data
 from in_out.neural_net_oriented import load_scan_related_data, load_referential_data
 # from in_out.pt_datasets.listening_dataset import make_data_loaders
-from in_out.pt_datasets.listening_dataset_2dcontext import make_data_loaders
+from in_out.pt_datasets.listening_dataset_2dcontext import make_data_loaders, make_extractor_data_loaders
 
 from models.sat_net import instantiate_referit3d_net
 from utils import set_gpu_to_zero_position, seed_training_code, create_logger
 from utils.scheduler import GradualWarmupScheduler
 from utils.tf_visualizer import Visualizer
 from tqdm import tqdm
+import pandas as pd
 
-DST_PATH = '/data/meta-ScanNet/nr3d_clip_text'
-DST_SUFFIX = 'clip_text_feat'  # example file name: scene0706_00_clip_text_feat.npy
+# DST_PATH = '/data/meta-ScanNet/nr3d_bert_text'  # clip_lang_eos feature here
+# DST_SUFFIX = 'bert_text_feat'  # example npy file name: 0_clip_text_feat_train.npy
+
+DST_PATH = '/data/meta-ScanNet/nr3d_clip_text'  # clip_lang_eos feature here
+DST_SUFFIX = 'clip_text_feat'  # example npy file name: 0_clip_text_feat_train.npy
 ARGS = None
 
 
@@ -44,13 +58,16 @@ def _get_mask(nums, max_num):
 
 
 @torch.no_grad()
-def extract_text_feat(model, batch):
+def extract_text_feat(model, batch, is_train):
     """
     this function only saves a [N, lang_size, d_feat] language feature.
     no classifier used!
     Use with cautions! language order might be shuffled...
     """
     # result = defaultdict(lambda: None)
+    for k in batch.keys():
+        batch[k] = batch[k].to(device)
+
     if not ARGS.use_clip_language:
         txt_inds = batch["token_inds"]  # N, lang_size  lang_size = args.max_seq_len
         txt_type_mask = torch.ones(txt_inds.shape, device=torch.device('cuda')) * 1.
@@ -69,7 +86,8 @@ def extract_text_feat(model, batch):
         #     result['lang_logits'] = model.language_clf(
         #         text_bert_out[:, 0, :])  # language classifier only use [CLS] token
     else:  # clip language encoder
-        txt_emb = model.clip_model.encode_text(batch['clip_inds'])  # txt embeddings shape: [N, lang_size, 768]
+        txt_inds = batch['clip_inds']
+        txt_emb = model.clip_model.encode_text(txt_inds)  # txt embeddings shape: [N, lang_size, 768]
         # txt_mask = _get_mask(batch['token_num'].to(batch['clip_inds'].device),  # how many token are not masked
         #                      batch['clip_inds'].size(1))
         # if model.language_clf is not None:
@@ -79,10 +97,18 @@ def extract_text_feat(model, batch):
         #                                                  txt_emb)  # N, 768  -> Direct EOS works better
         #     result['lang_logits'] = model.language_clf(txt_cls_emb)
     # print(txt_emb.shape)
+    for j in range(txt_emb.size(0)):  # iterate over each utterance
+        index = batch['csv_index'][j]
+        save_path = os.path.join(DST_PATH, '{}_{}_{}.npy'.format(index, DST_SUFFIX, 'train' if is_train else 'test'))
+        save_obj = txt_emb[j].detach().cpu().numpy()
+        # save_obj = {'data': txt_emb[j].detach().cpu().numpy(), 'inds': txt_inds[j].cpu().numpy(), 'index': int(index)}
+        # np.save(save_path, save_obj, allow_pickle=True)  # save a [lang_size, d_model] array
+        np.save(save_path, save_obj)
 
 
 if __name__ == '__main__':
     args = parse_arguments()
+    # exit(0)
     ARGS = args
     if not os.path.exists(DST_PATH):
         os.makedirs(DST_PATH)
@@ -109,11 +135,15 @@ if __name__ == '__main__':
     # Read the linguistic data of ReferIt3D
     referit_data = load_referential_data(args, args.referit3D_file, scans_split)  # nr3d.csv/sr3d.csv就ok
 
+    # referit_data.to_csv('filter_nr3d.csv')
+    # exit(0)
+    # dump a referit_data to check
+
     # Prepare data & compute auxiliary meta-information.
     all_scans_in_dict = trim_scans_per_referit3d_data(referit_data, all_scans_in_dict)
     mean_rgb, vocab = compute_auxiliary_data(referit_data, all_scans_in_dict, args)
-    data_loaders = make_data_loaders(args, referit_data, vocab, class_to_idx, all_scans_in_dict, mean_rgb,
-                                     cut_prefix_num=1000 if args.profile or args.debug else None)
+    data_loaders = make_extractor_data_loaders(args, referit_data, vocab, class_to_idx, all_scans_in_dict, mean_rgb,
+                                               cut_prefix_num=1000 if args.profile or args.debug else None)
 
     # Prepare GPU environment
     # set_gpu_to_zero_position(args.gpu)  # Pnet++ seems to work only at "gpu:0", make only args.gpu visible by torch
@@ -127,8 +157,15 @@ if __name__ == '__main__':
 
     model.eval()
 
+    # data_loaders['train'].drop_last = data_loaders['test'].drop_last = False
+    # data_loaders['train'].batch_size = data_loaders['test'].batch_size = 1
+
+    print(data_loaders['train'].dataset.__len__())  # 28716
+    print(data_loaders['test'].dataset.__len__())  # 7485
+    # exit(0)
+
     for batch in tqdm(data_loaders['train']):
-        extract_text_feat(model, batch)
+        extract_text_feat(model, batch, is_train=True)
 
     for batch in tqdm(data_loaders['test']):
-        extract_text_feat(model, batch)
+        extract_text_feat(model, batch, is_train=False)

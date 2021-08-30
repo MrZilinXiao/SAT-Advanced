@@ -38,11 +38,18 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--use-clip-language', action='store_true',
                         default=False)  # replace TextBERT, we now only possess `RN50x16` offline feature
     parser.add_argument('--freeze-clip-language', action='store_true', default=False)  # whether to freeze CLIP text encoder
-    parser.add_argument('--add-clip-proj', action='store_true', default=False)  # add a learnable projection to frozen CLIP Text Encoder
+    parser.add_argument('--add-lang-proj', action='store_true', default=False)  # add a learnable projection to frozen CLIP Text Encoder
     parser.add_argument('--direct-eos', action='store_true', default=False)   # only applicable if use-clip-language
 
     parser.add_argument('--init-language', action='store_true', default=False)
     parser.add_argument('--rgb-path', type=str, default="")   # if online feature, we need 2D RGB input
+
+    # frozen language encoder setting
+    parser.add_argument('--offline-language-type', type=str, default=None, choices=['clip', 'bert'])
+    parser.add_argument('--offline-language-path', type=str, default="")   # if offline language, we need language feat path
+
+    # for extractor usage
+    parser.add_argument('--extract-text', action='store_true', default=False)   # if True, using text extractor
 
     #
     # Non-optional arguments
@@ -209,7 +216,9 @@ def parse_arguments(notebook_options=None):
         args.tensorboard_dir = osp.join(args.log_dir, 'tb_logs')
 
     if args.use_clip_visual or args.use_clip_language:
-        if args.clip_backbone is None:
+        if args.use_clip_language and args.offline_language_type is not None:  # add exception on offline clip language
+            pass
+        elif args.clip_backbone is None:
             raise ValueError('You can not use clip online features if not indicating clip_backbone!')
 
     if args.use_clip_visual:
@@ -225,10 +234,10 @@ def parse_arguments(notebook_options=None):
             logger.warning(
                 colored('You indicate a CLIP online backbone {} but not using it!'.format(args.clip_backbone), 'red'))
 
-        if args.use_clip_language:
-            args.max_seq_len = 77
-            logger.warning(
-                colored('You are overriding max_seq_len since you use CLIP language encoder!', 'red'))
+        # if args.use_clip_language:
+        #     args.max_seq_len = 77
+        #     logger.warning(
+        #         colored('You are overriding max_seq_len since you use CLIP language encoder!', 'red'))
 
         if args.use_clip_visual and args.feat2d is not None:
             logger.warning(

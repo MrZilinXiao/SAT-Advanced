@@ -5,7 +5,7 @@ import os
 import numpy as np
 from torch.utils.data import Dataset, Subset
 from functools import partial
-from in_out.pt_datasets.utils import dataset_to_dataloader, max_io_workers
+from in_out.pt_datasets.utils import dataset_to_dataloader, max_io_workers, extractor_dataset_to_dataloader
 from utils import share_array
 
 from pytorch_transformers.tokenization_bert import BertTokenizer
@@ -47,7 +47,7 @@ class ListeningDataset(Dataset):
     def __init__(self, references, scans, vocab, offline_2d_feat, max_seq_len, points_per_object, max_distractors, args,
                  class_to_idx=None, object_transformation=None,
                  visualization=False, pretrain=False, context_object=False, feat2dtype=None, addlabel_words=False,
-                 num_class_dim=525, evalmode=False):
+                 num_class_dim=525, evalmode=False, split='train'):
         self.args = args
         self.references = references
         self.scans = scans  # should be shared across experiments !!
@@ -81,14 +81,26 @@ class ListeningDataset(Dataset):
         if not check_segmented_object_order(scans):
             raise ValueError
 
-        self.extract_text = False
+        self.extract_text = args.extract_text
+        self.use_offline_language = len(args.offline_language_path) > 0
+        self.split = split
+        if self.use_offline_language:
+            # assert args.language_type is not None
+            if args.offline_language_type == 'clip':
+                self.language_suffix = 'clip_text_feat'
+            elif args.offline_language_type == 'bert':
+                self.language_suffix = 'bert_text_feat'
+            else:
+                raise NotImplemented('Unknown language type...')
+            logger.info("Using offline language feature from {}...".format(args.offline_language_path))
 
     def __len__(self):
         return len(self.references)
         # return int(len(self.references)//3.293)
 
     def get_reference_data(self, index):
-        ref = self.references.loc[index]
+        # ScannetScan Object, ThreeDObject Object, [24 + 2] ndarray (from self.vocab), list of word str, bool flag of is_nr3d
+        ref = self.references.loc[index]  # pandas dataframe, save the index would work?
         scan = self.scans[ref['scan_id']]
         target = scan.three_d_objects[ref['target_id']]
         tokens = np.array(self.vocab.encode(ref['tokens'], self.max_seq_len), dtype=np.long)
@@ -128,6 +140,7 @@ class ListeningDataset(Dataset):
         res = dict()
         scan, target, tokens, text_tokens, is_nr3d = self.get_reference_data(index)
         # ScannetScan Object, ThreeDObject Object, [24 + 2] ndarray (from self.vocab), list of word str, bool flag of is_nr3d
+
         # TextBERT tokenize
         if not self.args.use_clip_language:
             token_inds = torch.zeros(self.max_seq_len, dtype=torch.long)
@@ -141,14 +154,19 @@ class ListeningDataset(Dataset):
             clip_indices = clip_indices.squeeze(0)  # have to remove batch_dim, shape: [77] on cpu
             token_num = torch.sum(clip_indices != 0, dtype=torch.long)
 
+        res['csv_index'] = index  # this index varies in train / test split
+
+        if self.use_offline_language:
+            res['txt_emb'] = np.load(os.path.join(self.args.offline_language_path, '{}_{}_{}.npy'.format(index, self.language_suffix, self.split)))
+
         if self.extract_text:  # for temporary extractor
             if not self.args.use_clip_language:
                 res['tokens'] = tokens
                 res['token_inds'] = token_inds.numpy().astype(np.int64)  # model takes these
-                # res['token_num'] = token_num.numpy().astype(np.int64)
+                res['token_num'] = token_num.numpy().astype(np.int64)
             else:
                 res['clip_inds'] = clip_indices
-            res['csv_index'] = index
+            # TODO: please make sure that we wouldn't change the data reading strategy!!
             return res
         # if self.pretrain:
         #     ## entire seq replace for now
@@ -211,7 +229,6 @@ class ListeningDataset(Dataset):
         #     res['context_objects'] = pad_samples(context_obj, self.max_context_size)
 
         #########################################
-        # ## TODO: check tokenizer
         # ## BERT tokenize of class tags
         # ## V0: prev enc
         # tag_token_inds = torch.zeros(self.max_context_size, dtype=torch.long)
@@ -284,7 +301,8 @@ class ListeningDataset(Dataset):
 
         res['target_class'] = self.class_to_idx[target.instance_label]
         res['target_pos'] = target_pos
-        res['target_class_mask'] = target_class_mask  # indicating which objects have the same instance-class as the target.
+        res[
+            'target_class_mask'] = target_class_mask  # indicating which objects have the same instance-class as the target.
 
         if not self.args.use_clip_language:
             res['tokens'] = tokens
@@ -292,6 +310,7 @@ class ListeningDataset(Dataset):
             # res['token_num'] = token_num.numpy().astype(np.int64)
         else:
             res['clip_inds'] = clip_indices
+
         res['token_num'] = token_num.numpy().astype(np.int64)
         # if self.addlabel_words: res['tag_token_num'] = tag_token_num.numpy().astype(np.int64)
         res['is_nr3d'] = is_nr3d
@@ -328,7 +347,8 @@ class ListeningDataset(Dataset):
             if self.args.clsvec2d:
                 featdim += self.num_class_dim
             feat_2d = np.zeros((self.max_context_size, featdim)).astype(np.float32)
-            coords_2d = np.zeros((self.max_context_size, 4 + 12)).astype(np.float32)  # make empty feat_2d & coords_2d, since they do not matter
+            coords_2d = np.zeros((self.max_context_size, 4 + 12)).astype(
+                np.float32)  # make empty feat_2d & coords_2d, since they do not matter
             res['feat_2d'] = feat_2d
             res['coords_2d'] = coords_2d
             return res
@@ -581,7 +601,8 @@ def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb, 
                                    addlabel_words=args.addlabel_words,
                                    num_class_dim=525 if '00' in args.scannet_file else 608,
                                    # 判断似乎有问题？Tips: Nr3D和Sr3D的type数量不同
-                                   evalmode=(args.mode == 'evaluate'))  # 在训练途中的eval怎么办？
+                                   evalmode=(args.mode == 'evaluate'),
+                                   split=split)  # 在训练途中的eval怎么办？
 
         if split == 'train' and cut_prefix_num is not None:  # split subset form profiling
             dataset = Subset(dataset, np.arange(cut_prefix_num))
@@ -594,5 +615,77 @@ def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb, 
 
         data_loaders[split] = dataset_to_dataloader(dataset, split, args.batch_size, n_workers, pin_memory=False,
                                                     seed=seed)
+
+    return data_loaders
+
+
+def make_extractor_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb, seed=None,
+                                cut_prefix_num=None):
+    n_workers = args.n_workers
+    if n_workers == -1:
+        n_workers = max_io_workers()
+
+    data_loaders = dict()
+    is_train = referit_data['is_train']
+    splits = ['train', 'test']
+
+    object_transformation = partial(mean_rgb_unit_norm_transform, mean_rgb=mean_rgb,
+                                    unit_norm=args.unit_sphere_norm)
+    for split in splits:
+        mask = is_train if split == 'train' else ~is_train
+        d_set = referit_data[mask]
+        d_set.reset_index(drop=True, inplace=True)
+
+        #
+        max_distractors = args.max_distractors if split == 'train' else args.max_test_objects - 1
+        ## this is a silly small bug -> not the minus-1.
+
+        # if split == test remove the utterances of unique targets
+        if split == 'test':
+            def multiple_targets_utterance(x):
+                _, _, _, _, distractors_ids = decode_stimulus_string(x.stimulus_id)
+                return len(distractors_ids) > 0
+
+            multiple_targets_mask = d_set.apply(multiple_targets_utterance, axis=1)
+            d_set = d_set[multiple_targets_mask]
+            d_set.reset_index(drop=True, inplace=True)
+            print("length of dataset before removing non multiple test utterances {}".format(len(d_set)))
+            print("removed {} utterances from the test set that don't have multiple distractors".format(
+                np.sum(~multiple_targets_mask)))
+            print("length of dataset after removing non multiple test utterances {}".format(len(d_set)))
+
+            assert np.sum(~d_set.apply(multiple_targets_utterance, axis=1)) == 0
+
+        dataset = ListeningDataset(args=args,
+                                   references=d_set,
+                                   scans=scans,
+                                   vocab=vocab,
+                                   offline_2d_feat=args.offline_2d_feat,
+                                   max_seq_len=args.max_seq_len,
+                                   points_per_object=args.points_per_object,
+                                   max_distractors=max_distractors,
+                                   class_to_idx=class_to_idx,
+                                   object_transformation=object_transformation,
+                                   visualization=args.mode == 'evaluate',
+                                   pretrain=args.pretrain,
+                                   context_object=args.context_obj,
+                                   feat2dtype=args.feat2d,
+                                   addlabel_words=args.addlabel_words,
+                                   num_class_dim=525 if '00' in args.scannet_file else 608,
+                                   # 判断似乎有问题？Tips: Nr3D和Sr3D的type数量不同
+                                   evalmode=(args.mode == 'evaluate'))  # 在训练途中的eval怎么办？
+
+        if split == 'train' and cut_prefix_num is not None:  # split subset form profiling
+            dataset = Subset(dataset, np.arange(cut_prefix_num))
+            n_workers = 0
+            logger.info("Slicing the prev {} samples for train-set profiling!".format(cut_prefix_num))
+
+        seed = seed
+        if split == 'test':
+            seed = args.random_seed
+
+        data_loaders[split] = extractor_dataset_to_dataloader(dataset, split, args.batch_size, n_workers,
+                                                              pin_memory=False,
+                                                              seed=seed)
 
     return data_loaders

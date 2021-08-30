@@ -11,6 +11,7 @@ from models.default_blocks import *
 from models.utils import get_siamese_features
 from in_out.vocabulary import Vocabulary
 from loguru import logger
+from termcolor import colored
 
 try:
     from . import PointNetPP
@@ -50,7 +51,16 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         self.args = args
         self.loss_proj = args.loss_proj  # default False
         self.args_mode = args.mode
-        self.text_length = args.max_seq_len
+
+        if args.offline_language_type is None:
+            self.text_length = args.max_seq_len
+        elif args.offline_language_type == 'clip':
+            self.text_length = 77
+        elif args.offline_language_type == 'bert':
+            self.text_length = 24
+        else:
+            raise NotImplemented()
+
         self.addlabel_words = args.addlabel_words
         self.pretrain = pretrain
         self.context_2d = context_2d
@@ -110,37 +120,49 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         if args.clip_backbone is not None:
             self.clip_model = OnlineCLIP(args)
 
-        # Encoders for text
-        if not args.use_clip_language:  # use TextBERT
-            text_bert_config = BertConfig(
-                hidden_size=TEXT_BERT_HIDDEN_SIZE,  # 768
-                num_hidden_layers=3,  # clip has 12 layers
-                num_attention_heads=12,
-                type_vocab_size=2)
-            self.text_bert = TextBert.from_pretrained(  # 有预训练
-                'bert-base-uncased',
-                config=text_bert_config,
-                mmt_mask=self.mmt_mask,
-                addlabel_words=self.addlabel_words)
-            if args.init_language:
-                logger.warning('DEBUG: We init weight of TextBERT to observe txt_cls_acc...')
-                self.text_bert.init_weights()
-        else:  # use clip transformer
-            logger.info('Using CLIP Online Language Encoder...')
-            TEXT_BERT_HIDDEN_SIZE = 768  # CLIP fixed language feat dim
-            if args.init_language:
-                logger.warning('DEBUG: We init weight of the ENTIRE CLIP to observe txt_cls_acc...')
-                self.clip_model.model.initialize_parameters()
-            if args.freeze_clip_language:
-                self.clip_model.freeze_text()
-            if args.add_clip_proj:
-                self.clip_lang_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE)
-                # a learnable projection from frozen CLIP to MMT
+        if args.offline_language_type is None:  # default
+            # Encoders for text
+            if not args.use_clip_language:  # use TextBERT
+                text_bert_config = BertConfig(
+                    hidden_size=TEXT_BERT_HIDDEN_SIZE,  # 768
+                    num_hidden_layers=3,  # clip has 12 layers
+                    num_attention_heads=12,
+                    type_vocab_size=2)
+                self.text_bert = TextBert.from_pretrained(  # 有预训练
+                    'bert-base-uncased',
+                    config=text_bert_config,
+                    mmt_mask=self.mmt_mask,
+                    addlabel_words=self.addlabel_words)
+                if args.init_language:
+                    logger.warning('DEBUG: We init weight of TextBERT to observe txt_cls_acc...')
+                    self.text_bert.init_weights()
+                if TEXT_BERT_HIDDEN_SIZE != MMT_HIDDEN_SIZE:
+                    self.text_bert_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE)
+                else:  # SAT original setting here
+                    self.text_bert_out_linear = nn.Identity()
+            else:  # use clip transformer
+                logger.info(colored('Using CLIP Online Language Encoder...', 'red'))
+                TEXT_BERT_HIDDEN_SIZE = 768  # CLIP fixed language feat dim
+                if args.init_language:
+                    logger.warning('DEBUG: We init weight of the ENTIRE CLIP to observe txt_cls_acc...')
+                    self.clip_model.model.initialize_parameters()
+                if args.freeze_clip_language:
+                    logger.warning('Online freezing clip language encoder...')
+                    self.clip_model.freeze_text()
+                if args.add_lang_proj:
+                    self.clip_lang_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE)
+                    # a learnable projection from frozen CLIP to MMT
+        elif args.offline_language_type == 'clip':  # offline language, need a proj if `add_lang_proj`
+            logger.info(colored("Read in offline clip language feature as MMT input with add_lang_proj={}".format(args.add_lang_proj), 'red'))
+            self.clip_lang_out_linear_offline = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE) if args.add_lang_proj else nn.Identity()
+        elif args.offline_language_type == 'bert':
+            logger.info(colored("Read in offline BERT language feature as MMT input with add_lang_proj={}".format(args.add_lang_proj), 'red'))
+            self.text_bert_out_linear_offline = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE) if args.add_lang_proj else nn.Identity()
+        else:
+            raise NotImplemented()
 
-        if TEXT_BERT_HIDDEN_SIZE != MMT_HIDDEN_SIZE:
-            self.text_bert_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE)
-        else:  # by default goes here
-            self.text_bert_out_linear = nn.Identity()
+        self.text_bert_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE) if TEXT_BERT_HIDDEN_SIZE != MMT_HIDDEN_SIZE else nn.Identity()
+        # SAT original setting here
 
         # if args.feat2d=='clsvec':
         #     # print(self.linear_2d_feat_to_mmt_in.weight.shape)
@@ -272,43 +294,61 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         #     obj_mask = torch.cat([obj_mask, context_obj_mask], dim=1)
 
         # Get feature for utterance
-        if not self.args.use_clip_language:
-            txt_inds = batch["token_inds"]  # N, lang_size  lang_size = args.max_seq_len
-            txt_type_mask = torch.ones(txt_inds.shape, device=torch.device('cuda')) * 1.
 
-            # if not self.addlabel_words:
-            txt_mask = _get_mask(batch['token_num'].to(txt_inds.device),  # how many token are not masked
-                                 txt_inds.size(1))  ## all proposals are non-empty
-            # else:
-            #     txt_mask = _get_mask(batch['token_num'].to(txt_inds.device),
-            #                          txt_inds.size(1) - obj_num)  ## all proposals are non-empty
-            #     tag_txt_mask = _get_mask(batch['tag_token_num'].to(txt_inds.device),
-            #                              obj_num)  ## all proposals are non-empty
-            #     txt_mask = torch.cat([txt_mask, tag_txt_mask], dim=1)
-            #     txt_type_mask[:, :txt_inds.size(1) - obj_num] = 0
-            txt_type_mask = txt_type_mask.long()
+        if self.args.offline_language_type is None:
+            if not self.args.use_clip_language:
+                txt_inds = batch["token_inds"]  # N, lang_size  lang_size = args.max_seq_len
+                txt_type_mask = torch.ones(txt_inds.shape, device=torch.device('cuda')) * 1.
 
-            text_bert_out = self.text_bert(
-                txt_inds=txt_inds,
-                txt_mask=txt_mask,
-                txt_type_mask=txt_type_mask
-            )  # N, lang_size, TEXT_BERT_HIDDEN_SIZE
-            txt_emb = self.text_bert_out_linear(text_bert_out)  # text_bert_hidden_size -> mmt_hidden_size
-            # Classify the target instance label based on the text
-            if self.language_clf is not None:
-                result['lang_logits'] = self.language_clf(text_bert_out[:, 0, :])   # language classifier only use [CLS] token
-        else:  # clip language encoder
-            txt_emb = self.clip_model.encode_text(batch['clip_inds'])   # txt embeddings shape: [N, lang_size, 768]
-            txt_mask = _get_mask(batch['token_num'].to(batch['clip_inds'].device),  # how many token are not masked
-                                 batch['clip_inds'].size(1))
-            if self.language_clf is not None:
-                # result['lang_logits'] = self.language_clf(txt_emb[:, 0, :])
-                # !! BUG Found !! txt_emb[:, 0, :] will always be the same in clip encoder
+                # if not self.addlabel_words:
+                txt_mask = _get_mask(batch['token_num'].to(txt_inds.device),  # how many token are not masked
+                                     txt_inds.size(1))  ## all proposals are non-empty
+                # else:
+                #     txt_mask = _get_mask(batch['token_num'].to(txt_inds.device),
+                #                          txt_inds.size(1) - obj_num)  ## all proposals are non-empty
+                #     tag_txt_mask = _get_mask(batch['tag_token_num'].to(txt_inds.device),
+                #                              obj_num)  ## all proposals are non-empty
+                #     txt_mask = torch.cat([txt_mask, tag_txt_mask], dim=1)
+                #     txt_type_mask[:, :txt_inds.size(1) - obj_num] = 0
+                txt_type_mask = txt_type_mask.long()
 
-                txt_cls_emb = self.clip_model.classify_text(batch['clip_inds'], txt_emb)  # N, 768
-                if self.args.add_clip_proj:
-                    txt_emb = self.clip_lang_out_linear(txt_emb)  # txt_dim remains the same
-                result['lang_logits'] = self.language_clf(txt_cls_emb)
+                text_bert_out = self.text_bert(
+                    txt_inds=txt_inds,
+                    txt_mask=txt_mask,
+                    txt_type_mask=txt_type_mask
+                )  # N, lang_size, TEXT_BERT_HIDDEN_SIZE
+                txt_emb = self.text_bert_out_linear(text_bert_out)  # text_bert_hidden_size -> mmt_hidden_size
+                # Classify the target instance label based on the text
+                if self.language_clf is not None:
+                    result['lang_logits'] = self.language_clf(text_bert_out[:, 0, :])   # language classifier only use [CLS] token
+            else:  # clip language encoder
+                txt_emb = self.clip_model.encode_text(batch['clip_inds'])   # txt embeddings shape: [N, lang_size, 768]
+                txt_mask = _get_mask(batch['token_num'].to(batch['clip_inds'].device),  # how many token are not masked
+                                     batch['clip_inds'].size(1))
+                if self.language_clf is not None:
+                    # result['lang_logits'] = self.language_clf(txt_emb[:, 0, :])
+                    # !! BUG Found !! txt_emb[:, 0, :] will always be the same in clip encoder
+
+                    txt_cls_emb = self.clip_model.classify_text(batch['clip_inds'], txt_emb)  # N, 768
+                    if self.args.add_lang_proj:
+                        txt_emb = self.clip_lang_out_linear(txt_emb)  # txt_dim remains the same
+                    result['lang_logits'] = self.language_clf(txt_cls_emb)
+
+        else:  # just read in offline language, add an optional projection head
+            txt_emb = batch['txt_emb']   # [N, lang_size, d_model] lang_size = 24 / 77
+            txt_mask = _get_mask(batch['token_num'].to(txt_emb.device), txt_emb.size(1))
+            if self.args.offline_language_type == 'bert':
+                txt_emb = self.text_bert_out_linear_offline(txt_emb)
+            elif self.args.offline_language_type == 'clip':
+                txt_emb = self.clip_lang_out_linear_offline(txt_emb)
+
+            if self.language_clf is not None:  # aux training objective
+                if self.args.offline_language_type == 'bert':
+                    result['lang_logits'] = self.language_clf(txt_emb[:, 0, :])   # [CLS] embedding N, 768
+                elif self.args.offline_language_type == 'clip':  # using direct EOS as classifier embedding
+                    clip_txt_inds = batch['clip_inds']
+                    txt_cls_emb = txt_emb[torch.arange(txt_emb.shape[0]), clip_txt_inds.argmax(dim=-1)]  # N, 768
+                    result['lang_logits'] = self.language_clf(txt_cls_emb)
 
         mmt_results = self.mmt(
             txt_emb=txt_emb,  # N, lang_size, MMT_HIDDEN_SIZE

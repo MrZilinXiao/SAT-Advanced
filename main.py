@@ -104,15 +104,32 @@ CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 -
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
 --save-args --norm-offline-feat --n-workers 4 --direct-eos --wandb-log --git-commit
 
-(只用EOS，freeze CLIP language + learnable projection, 修复了clip backbone的学习率问题)
+(只用EOS，freeze CLIP language + learnable projection, 修复了clip backbone的学习率问题) clip_lang_eos_freeze_proj/08-27-2021-20-20-23
 CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=26 --gpu=3 --transformer --experiment-tag=clip_lang_eos_freeze_proj \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 --clip-backbone RN50x16 --use-clip-language \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4 --direct-eos --freeze-clip-language --add-clip-proj --wandb-log --git-commit
+--save-args --norm-offline-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj --wandb-log --git-commit
 
+(只用EOS，freeze CLIP language + learnable projection，不再载入text encoder，希望重现上面的结果)
+CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=26 --gpu=3 --transformer --experiment-tag=clip_lang_eos_freeze_proj \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--use-clip-language --offline-language-type clip --offline-language-path /data/meta-ScanNet/nr3d_clip_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-offline-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj --wandb-log --git-commit
+
+(freeze text bert + learnable projection, 对标clip_add_norm的baseline)
+CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 --transformer --experiment-tag=bert_lang_freeze_proj \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--use-clip-language --offline-language-type bert --offline-language-path /data/meta-ScanNet/nr3d_bert_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-offline-feat --n-workers 4 --direct-eos --add-lang-proj --wandb-log --git-commit
 """
 
 import time
