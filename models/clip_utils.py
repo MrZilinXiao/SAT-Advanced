@@ -6,8 +6,6 @@ from models.utils import set_param, set_embed_or_standalone_layer, set_layer
 
 """
 是直接换掉encoder还是loss辅助学习？
-对visual来现在有：1. offline grid-feat (各种backbone) 2. online encoder(clip / detector) 3. freeze, clip L1 loss
-对language来说有：1. 保持原样的TextBERT   2. clip换掉现在的预训练TextBERT，这正好跟SAT的2D Grounding形式一致 
 """
 
 

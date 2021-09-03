@@ -100,6 +100,9 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         if self.args.clsvec2d:
             featdim += num_class_dim
 
+        self.featdim = featdim - num_class_dim  # 768 + num_class_dim (-num_class_dim)
+        self.num_class_dim = num_class_dim if self.args.clsvec2d else 0
+
         self.linear_2d_feat_to_mmt_in = nn.Linear(featdim, MMT_HIDDEN_SIZE)
         # self.linear_2d_feat_to_mmt_in = nn.Sequential(nn.Linear(2048, 32),
         #                          nn.Linear(32, MMT_HIDDEN_SIZE))
@@ -153,15 +156,22 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                     self.clip_lang_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE)
                     # a learnable projection from frozen CLIP to MMT
         elif args.offline_language_type == 'clip':  # offline language, need a proj if `add_lang_proj`
-            logger.info(colored("Read in offline clip language feature as MMT input with add_lang_proj={}".format(args.add_lang_proj), 'red'))
-            self.clip_lang_out_linear_offline = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE) if args.add_lang_proj else nn.Identity()
+            logger.info(colored(
+                "Read in offline clip language feature as MMT input with add_lang_proj={}".format(args.add_lang_proj),
+                'red'))
+            self.clip_lang_out_linear_offline = nn.Linear(TEXT_BERT_HIDDEN_SIZE,
+                                                          MMT_HIDDEN_SIZE) if args.add_lang_proj else nn.Identity()
         elif args.offline_language_type == 'bert':
-            logger.info(colored("Read in offline BERT language feature as MMT input with add_lang_proj={}".format(args.add_lang_proj), 'red'))
-            self.text_bert_out_linear_offline = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE) if args.add_lang_proj else nn.Identity()
+            logger.info(colored(
+                "Read in offline BERT language feature as MMT input with add_lang_proj={}".format(args.add_lang_proj),
+                'red'))
+            self.text_bert_out_linear_offline = nn.Linear(TEXT_BERT_HIDDEN_SIZE,
+                                                          MMT_HIDDEN_SIZE) if args.add_lang_proj else nn.Identity()
         else:
             raise NotImplemented()
 
-        self.text_bert_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE) if TEXT_BERT_HIDDEN_SIZE != MMT_HIDDEN_SIZE else nn.Identity()
+        self.text_bert_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE,
+                                              MMT_HIDDEN_SIZE) if TEXT_BERT_HIDDEN_SIZE != MMT_HIDDEN_SIZE else nn.Identity()
         # SAT original setting here
 
         # if args.feat2d=='clsvec':
@@ -240,23 +250,47 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         objects_features = get_siamese_features(self.object_encoder, batch['objects'],
                                                 aggregator=torch.stack)  # B X N_Objects x object-latent-dim
 
+        # 3D features
         obj_mmt_in = self.obj_feat_layer_norm(self.linear_obj_feat_to_mmt_in(objects_features)) + \
                      self.obj_bbox_layer_norm(self.linear_obj_bbox_to_mmt_in(batch['obj_offset']))  # obj_offset
 
-        # 3D features
-        if 'feat_2d' in batch and self.args.norm_offline_feat:
-            batch['feat_2d'] /= batch['feat_2d'].norm(dim=-1, keepdim=True)
+        # if self.context_2d == 'aligned':  # 如果2D-3D已对齐 abandoned params
+        #     obj_mmt_in = obj_mmt_in + \
+        #                  self.obj2d_feat_layer_norm(self.linear_2d_feat_to_mmt_in(batch['feat_2d'])) + \
+        #                  self.obj2d_bbox_layer_norm(self.linear_2d_bbox_to_mmt_in(batch['coords_2d']))
 
-        if self.context_2d == 'aligned':  # 如果2D-3D已对齐 abandoned params
-            obj_mmt_in = obj_mmt_in + \
-                         self.obj2d_feat_layer_norm(self.linear_2d_feat_to_mmt_in(batch['feat_2d'])) + \
-                         self.obj2d_bbox_layer_norm(self.linear_2d_bbox_to_mmt_in(batch['coords_2d']))
-
-        obj_mmt_in = self.obj_drop(obj_mmt_in)   # dropout for 3D feat
+        obj_mmt_in = self.obj_drop(obj_mmt_in)  # dropout for 3D feat
         obj_num = obj_mmt_in.size(1)  # N, obj_num, feat_size
         obj_mask = _get_mask(batch['context_size'].to(obj_mmt_in.device), obj_num)  # all proposals are non-empty
         # should be all 1, since context_size == obj_num == len(samples)
 
+        # choose the source of 2D feature
+        if self.args.use_clip_visual:  # online clip visual
+            img_batch = batch['clip_crops']  # (N, obj_num, 3, 384, 384)
+            feat_2d = torch.zeros((img_batch.size(0), obj_num, self.featdim + self.num_class_dim),
+                                  device=img_batch.device)  # N, obj, 768 + num_class
+            for i in range(obj_num):  # too heavy? should try it out.
+                imgs = img_batch[:, i, :, :, :]  # N, 3, 384, 384
+                feats = self.clip_model.encode_image(imgs)
+                feat_2d[:, i, :self.featdim] = feats
+                feat_2d[:, i, self.featdim:] = batch['feat_2d'][:, i, self.featdim:]  # paste the class vector
+
+        elif self.args.use_frcn_visual:
+            raise NotImplemented()
+        elif self.args.feat2d is not None:  # offline
+            feat_2d = batch['feat_2d']
+        else:
+            raise NotImplemented()
+        # feat_2d -> (N, obj_num, feat_size)
+
+        if self.args.norm_visual_feat:
+            # feat_2d /= feat_2d.norm(dim=-1, keepdim=True)
+            # fixed: only norm feat part, not the class vector part
+            # non_zero_rows = torch.where(torch.sum())
+            for batch_num in range(feat_2d.size(0)):
+                non_zero_rows = torch.where(torch.sum(feat_2d[batch_num, :, :self.featdim], dim=1))[0]
+                # print(non_zero_rows.shape)
+                feat_2d[batch_num, non_zero_rows, :self.featdim] /= feat_2d[batch_num, non_zero_rows, :self.featdim].norm(dim=-1, keepdim=True)
         # Classify the segmented objects
         if self.object_clf is not None:
             objects_classifier_features = obj_mmt_in
@@ -264,7 +298,9 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             result['class_logits'] = get_siamese_features(self.object_clf, objects_classifier_features, torch.stack)
 
         if self.context_2d == 'unaligned':  # 将2D feat作为context_obj接到3D feat后面
-            context_obj_mmt_in = self.obj2d_feat_layer_norm(self.linear_2d_feat_to_mmt_in(batch['feat_2d'])) + \
+            # context_obj_mmt_in = self.obj2d_feat_layer_norm(self.linear_2d_feat_to_mmt_in(batch['feat_2d'])) + \
+            #                      self.obj2d_bbox_layer_norm(self.linear_2d_bbox_to_mmt_in(batch['coords_2d']))
+            context_obj_mmt_in = self.obj2d_feat_layer_norm(self.linear_2d_feat_to_mmt_in(feat_2d)) + \
                                  self.obj2d_bbox_layer_norm(self.linear_2d_bbox_to_mmt_in(batch['coords_2d']))
 
             if '3D' in self.feat2dtype:
@@ -320,9 +356,10 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                 txt_emb = self.text_bert_out_linear(text_bert_out)  # text_bert_hidden_size -> mmt_hidden_size
                 # Classify the target instance label based on the text
                 if self.language_clf is not None:
-                    result['lang_logits'] = self.language_clf(text_bert_out[:, 0, :])   # language classifier only use [CLS] token
+                    result['lang_logits'] = self.language_clf(
+                        text_bert_out[:, 0, :])  # language classifier only use [CLS] token
             else:  # clip language encoder
-                txt_emb = self.clip_model.encode_text(batch['clip_inds'])   # txt embeddings shape: [N, lang_size, 768]
+                txt_emb = self.clip_model.encode_text(batch['clip_inds'])  # txt embeddings shape: [N, lang_size, 768]
                 txt_mask = _get_mask(batch['token_num'].to(batch['clip_inds'].device),  # how many token are not masked
                                      batch['clip_inds'].size(1))
                 if self.language_clf is not None:
@@ -335,7 +372,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                     result['lang_logits'] = self.language_clf(txt_cls_emb)
 
         else:  # just read in offline language, add an optional projection head
-            txt_emb = batch['txt_emb']   # [N, lang_size, d_model] lang_size = 24 / 77
+            txt_emb = batch['txt_emb']  # [N, lang_size, d_model] lang_size = 24 / 77
             txt_mask = _get_mask(batch['token_num'].to(txt_emb.device), txt_emb.size(1))
             if self.args.offline_language_type == 'bert':
                 txt_emb = self.text_bert_out_linear_offline(txt_emb)
@@ -344,7 +381,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
 
             if self.language_clf is not None:  # aux training objective
                 if self.args.offline_language_type == 'bert':
-                    result['lang_logits'] = self.language_clf(txt_emb[:, 0, :])   # [CLS] embedding N, 768
+                    result['lang_logits'] = self.language_clf(txt_emb[:, 0, :])  # [CLS] embedding N, 768
                 elif self.args.offline_language_type == 'clip':  # using direct EOS as classifier embedding
                     clip_txt_inds = batch['clip_inds']
                     txt_cls_emb = txt_emb[torch.arange(txt_emb.shape[0]), clip_txt_inds.argmax(dim=-1)]  # N, 768
@@ -359,7 +396,8 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         )
 
         if self.args_mode == 'evaluate':
-            assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + 2 * obj_num))   # we just input zeros 2D when evaluating
+            assert (mmt_results['mmt_seq_output'].shape[1] == (
+                        self.text_length + 2 * obj_num))  # we just input zeros 2D when evaluating
             # if not self.addlabel_words:
             #     assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + obj_num))
             # else:

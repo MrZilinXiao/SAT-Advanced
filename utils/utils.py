@@ -12,7 +12,11 @@ from loguru import logger
 import os.path as osp
 from six.moves import cPickle
 from six.moves import range
-
+# from collections import defaultdict
+#
+#
+# def invert_defaultdict(d, constructor=list):
+#     inv_dict = defaultdict(constructor)
 
 def invert_dictionary(d):
     inv_map = {v: k for k, v in six.iteritems(d)}

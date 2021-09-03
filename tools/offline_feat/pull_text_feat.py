@@ -1,5 +1,6 @@
 """
-pull out offline text feature to `/data/meta-ScanNet/split_feat`
+pull out offline text feature
+
 usage (clip text encoder):
 CUDA_VISIBLE_DEVICES=3 python3 split_feat.py --batch-size=36 --gpu=3 --transformer --experiment-tag=clip_lang_eos \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
@@ -36,8 +37,8 @@ from utils.tf_visualizer import Visualizer
 from tqdm import tqdm
 import pandas as pd
 
-# DST_PATH = '/data/meta-ScanNet/nr3d_bert_text'  # clip_lang_eos feature here
-# DST_SUFFIX = 'bert_text_feat'  # example npy file name: 0_clip_text_feat_train.npy
+# DST_PATH = '/data/meta-ScanNet/nr3d_bert_text'  # bert feature here
+# DST_SUFFIX = 'bert_text_feat'  # example npy file name: 0_bert_text_feat_train.npy
 
 DST_PATH = '/data/meta-ScanNet/nr3d_clip_text'  # clip_lang_eos feature here
 DST_SUFFIX = 'clip_text_feat'  # example npy file name: 0_clip_text_feat_train.npy

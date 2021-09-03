@@ -15,9 +15,6 @@ from scipy import ndimage
 
 # install `vqa-maskrcnn-benchmark` from
 # https://github.com/ronghanghu/vqa-maskrcnn-benchmark-m4c
-import sys;
-
-sys.path.append('/private/home/ronghanghu/workspace/vqa-maskrcnn-benchmark')  # NoQA
 from maskrcnn_benchmark.config import cfg
 from maskrcnn_benchmark.layers import nms
 from maskrcnn_benchmark.modeling.detector import build_detection_model
@@ -25,6 +22,17 @@ from maskrcnn_benchmark.structures.image_list import to_image_list
 from maskrcnn_benchmark.utils.model_serialization import load_state_dict
 """
 https://github.com/facebookresearch/maskrcnn-benchmark/blob/master/INSTALL.md
+"""
+
+"""
+equivlant detectron2 settings here: 
+https://github.com/clip-vil/CLIP-ViL/blob/master/CLIP-ViL-Direct/vqa/mcan_clip_grid_feature.py
+https://github.com/clip-vil/CLIP-ViL/blob/c1d891776b58f40e4dc0ead6ccd1eab02c6ed45b/CLIP-ViL-Direct/vqa/pythia_clip_grid_feature.py#L73
+
+please notice that maskecnn_benchmark does not support input_boxes training...
+
+TODO: check the grid feature below is usable and trainable?
+https://github.com/facebookresearch/grid-feats-vqa
 """
 
 
@@ -65,8 +73,8 @@ def _image_transform(image_path):
         fx=im_scale,
         fy=im_scale,
         interpolation=cv2.INTER_LINEAR
-    )
-    img = torch.from_numpy(im).permute(2, 0, 1)
+    )  # H, W, C
+    img = torch.from_numpy(im).permute(2, 0, 1)  # C, H, W, BGR
     return img, im_scale
 
 
@@ -119,7 +127,7 @@ def extract_features(
         output = detection_model(
             current_img_list, input_boxes=input_boxes)
 
-    if input_boxes is None:
+    if input_boxes is None:  # will not be None
         feat_list, bbox_list = _process_feature_extraction(
             output, im_scales, feat_name)
         feat = feat_list[0].cpu().numpy()
@@ -131,42 +139,36 @@ def extract_features(
     return feat, bbox
 
 
-def box_union(bbox1, bbox2):
-    return (
-        np.array([min(bbox1[0], bbox2[0]), min(bbox1[1], bbox2[1]), max(bbox1[2], bbox2[2]), max(bbox1[3], bbox2[3])],
-                 dtype=np.float32))
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--detection_cfg", type=str,
-        default='/private/home/ronghanghu/workspace/pythia/data/frcn_feature_extraction/detectron_model.yaml',
+        default='/data/pretrained_models/detectron_model.yaml',
         help="Detectron config file; download it from https://dl.fbaipublicfiles.com/pythia/detectron_model/detectron_model.yaml"
     )
     parser.add_argument(
         "--detection_model", type=str,
-        default='/private/home/ronghanghu/workspace/pythia/data/frcn_feature_extraction/detectron_model.pth',
+        default='/data/pretrained_models/detectron_model.pth',
         help="Detectron model file; download it from https://dl.fbaipublicfiles.com/pythia/detectron_model/detectron_model.pth"
     )
-    parser.add_argument(
-        "--imdb_file", type=str,
-        default='/private/home/ronghanghu/workspace/pythia/data/imdb/m4c_textvqa/imdb_train_ocr_en.npy',
-        help="The imdb to extract features"
-    )
+    # parser.add_argument(
+    #     "--imdb_file", type=str,
+    #     default='/private/home/ronghanghu/workspace/pythia/data/imdb/m4c_textvqa/imdb_train_ocr_en.npy',
+    #     help="The imdb to extract features"
+    # )
     parser.add_argument(
         "--image_dir", type=str,
-        default='/private/home/ronghanghu/workspace/DATASETS/TextVQA',
+        default='/data/ScanNet/tasks/scannet_frames_25k/scannet_frames_25k/',
         help="The directory containing images"
     )
     parser.add_argument(
         "--save_dir", type=str,
-        default='/private/home/ronghanghu/workspace/pythia/data/m4c_textvqa_ocr_en_frcn_features_2/train_images',
+        default='',
         help="The directory to save extracted features"
     )
     parser.add_argument(
         "--bbox_dir", type=str,
-        default='/private/home/ronghanghu/workspace/DATASETS/TextVQA',
+        default='',
         help="The directory containing images"
     )
     parser.add_argument('--gpu', default='0', help='gpu id')
@@ -177,7 +179,7 @@ def main():
 
     DETECTION_YAML = args.detection_cfg
     DETECTION_CKPT = args.detection_model
-    IMDB_FILE = args.imdb_file
+    # IMDB_FILE = args.imdb_file
     IMAGE_DIR = args.image_dir
     GTMAP_DIR = args.bbox_dir
     SAVE_DIR = args.save_dir
@@ -216,6 +218,7 @@ def main():
                 y_min, y_max = largest_cc_mask_xy[0].min(), largest_cc_mask_xy[0].max()
                 bbox_list.append([x_min, y_min, x_max, y_max])
                 instance_idlist.append(instance_id)
+
             bbox_list = np.array(bbox_list, dtype=np.float32)
             instance_idlist = np.array(instance_idlist, dtype=int)
 
@@ -234,4 +237,5 @@ def main():
 
 
 if __name__ == '__main__':
+
     main()

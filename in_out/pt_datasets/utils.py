@@ -1,7 +1,10 @@
 import warnings
+from functools import partial
+
 import numpy as np
 import multiprocessing as mp
 from torch.utils.data import DataLoader
+from torch.utils.data._utils.collate import default_collate
 
 
 def max_io_workers():
@@ -11,15 +14,24 @@ def max_io_workers():
     return n
 
 
-def dataset_to_dataloader(dataset, split, batch_size, n_workers, pin_memory=False, seed=None):
+def my_collate_fn(batch, not_stacked_keys: list):  # specific for dict Dataset return
+    # print(colored('seen in collate_fn: {}'.format(batch), 'red'))
+    elem = batch[0]
+    assert isinstance(elem, dict)  # elem must be a dict
+    all_keys = elem.keys()
+    # not_stacked_keys = ['data2']
+    stacked_keys = list(set(all_keys) - set(not_stacked_keys))
+    res = {key: default_collate([d[key] for d in batch]) for key in stacked_keys}
+
+    # not stacked keys will serve as a normal Python List
+    res.update({key: [element[key] for element in batch] for key in not_stacked_keys})
+    return res
+
+
+def dataset_to_dataloader(dataset, split, batch_size, n_workers, pin_memory=False, seed=None,
+                          not_stacked_keys: list = None):
     """
-    :param dataset:
-    :param split:
-    :param batch_size:
-    :param n_workers:
-    :param pin_memory:
-    :param seed:
-    :return:
+
     """
     batch_size_multiplier = 1 if split == 'train' else 2
     b_size = int(batch_size_multiplier * batch_size)
@@ -36,25 +48,36 @@ def dataset_to_dataloader(dataset, split, batch_size, n_workers, pin_memory=Fals
         if type(seed) is not int:
             warnings.warn('Test split is not seeded in a deterministic manner.')
 
-    data_loader = DataLoader(dataset,
-                             batch_size=b_size,
-                             num_workers=n_workers,
-                             shuffle=shuffle,
-                             drop_last=drop_last,
-                             pin_memory=pin_memory,
-                             worker_init_fn=worker_init_fn)
+    kwargs = {
+        'batch_size': b_size,
+        'num_workers': n_workers,
+        'shuffle': shuffle,
+        'drop_last': drop_last,
+        'pin_memory': pin_memory,
+        'worker_init_fn': worker_init_fn
+    }
+
+    if split == 'train' and not_stacked_keys is not None:  # change collate_fn only when training
+        # make a partial function
+        self_collate = partial(my_collate_fn, not_stacked_keys=not_stacked_keys)
+        kwargs.update({'collate_fn': self_collate})
+
+    # data_loader = DataLoader(dataset,
+    #                          batch_size=b_size,
+    #                          num_workers=n_workers,
+    #                          shuffle=shuffle,
+    #                          drop_last=drop_last,
+    #                          pin_memory=pin_memory,
+    #                          worker_init_fn=worker_init_fn)
+
+    data_loader = DataLoader(dataset, **kwargs)
+
     return data_loader
 
 
 def extractor_dataset_to_dataloader(dataset, split, batch_size, n_workers, pin_memory=False, seed=None):
     """
-    :param dataset:
-    :param split:
-    :param batch_size:
-    :param n_workers:
-    :param pin_memory:
-    :param seed:
-    :return:
+    WARNING! DO NOT TOUCH THIS! THIS IS FOR EXTRACTOR EXCLUSIVELY!
     """
     batch_size_multiplier = 64
     b_size = int(batch_size_multiplier)

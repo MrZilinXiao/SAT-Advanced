@@ -42,7 +42,22 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--direct-eos', action='store_true', default=False)   # only applicable if use-clip-language
 
     parser.add_argument('--init-language', action='store_true', default=False)
+
+    #
+    # online 2D visual extractor settings
+    #
     parser.add_argument('--rgb-path', type=str, default="")   # if online feature, we need 2D RGB input
+    parser.add_argument('--use-frcn-visual', action='store_true', default=False)   # can't be used for now, since FRCN do not support bbox optimizing
+    parser.add_argument(
+        "--detection_cfg", type=str,
+        default='/data/pretrained_models/detectron_model.yaml',
+        help="Detectron config file; download it from https://dl.fbaipublicfiles.com/pythia/detectron_model/detectron_model.yaml"
+    )
+    parser.add_argument(
+        "--detection_model", type=str,
+        default='/data/pretrained_models/detectron_model.pth',
+        help="Detectron model file; download it from https://dl.fbaipublicfiles.com/pythia/detectron_model/detectron_model.pth"
+    )
 
     # frozen language encoder setting
     parser.add_argument('--offline-language-type', type=str, default=None, choices=['clip', 'bert'])
@@ -138,7 +153,7 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--clsvec2d', action="store_true", default=True,
                         help='whether append one-hot class vector in 2D feature')
 
-    parser.add_argument('--norm-offline-feat', action="store_true", default=False)
+    parser.add_argument('--norm-visual-feat', action="store_true", default=False)
 
     parser.add_argument('--context_2d', type=str, default=None,
                         help="how to use 2D context; None, aligned or unaligned.")
@@ -220,6 +235,9 @@ def parse_arguments(notebook_options=None):
             pass
         elif args.clip_backbone is None:
             raise ValueError('You can not use clip online features if not indicating clip_backbone!')
+
+    if args.use_clip_visual and args.use_frcn_visual:
+        raise ValueError('You can only designate ONE 2D visual encoder!')
 
     if args.use_clip_visual:
         if args.rgb_path == "":

@@ -1,4 +1,6 @@
 import random
+from collections import defaultdict
+
 import torch
 import time
 import os
@@ -14,12 +16,18 @@ from pytorch_transformers.tokenization_bert import BertTokenizer
 # maybe make SegmentedScanDataset with only static functions and then inherit.
 from in_out.pt_datasets.utils import check_segmented_object_order, sample_scan_object, pad_samples, objects_bboxes
 from in_out.pt_datasets.utils import instance_labels_of_context, mean_rgb_unit_norm_transform
+from in_out.frcn_read import frcn_image_transform
 from data_generation.nr3d import decode_stimulus_string
+from PIL import Image
+import torchvision.transforms as transforms
 
 from loguru import logger
 # from memory_profiler import profile
-import gc
+# import gc
+import cv2
 
+# disable cv2 multi-thread processing
+cv2.setNumThreads(0)
 
 # class CacheReader:
 #     def __getitem__(self, item):
@@ -29,20 +37,13 @@ import gc
 #         _id = scene_name + '_' + key_name
 #         return share_array.read_cache(_id, shm_path=cache_path)
 
+to_tensor_loader = transforms.Compose([transforms.ToTensor()])
+
+
 class ListeningDataset(Dataset):
-    # FEAT_2D_FEAT_KEYS = {
-    #     'ROI': {
-    #         'key': 'obj_feat',
-    #         'feat_size': 2048
-    #     },
-    #     'ROI3D': {
-    #         'key': 'obj_feat',
-    #         'feat_size': 2048
-    #     },
-    #     'CLIP': {
-    #
-    #     }
-    # }
+    CLIP_MODEL_INPUT_RESOLUTION = {
+        'RN50x16': 384
+    }
 
     def __init__(self, references, scans, vocab, offline_2d_feat, max_seq_len, points_per_object, max_distractors, args,
                  class_to_idx=None, object_transformation=None,
@@ -84,6 +85,14 @@ class ListeningDataset(Dataset):
         self.extract_text = args.extract_text
         self.use_offline_language = len(args.offline_language_path) > 0
         self.split = split
+        self.use_online_visual = len(args.rgb_path) > 0
+        # self.max_frames = 30
+
+        if self.args.use_clip_visual:  # prepare a preprocessor for clip
+            from clip.clip import _transform
+            self.clip_img_size = self.CLIP_MODEL_INPUT_RESOLUTION[self.args.clip_backbone]
+            self.clip_transform = _transform(self.clip_img_size)
+
         if self.use_offline_language:
             # assert args.language_type is not None
             if args.offline_language_type == 'clip':
@@ -157,7 +166,8 @@ class ListeningDataset(Dataset):
         res['csv_index'] = index  # this index varies in train / test split
 
         if self.use_offline_language:
-            res['txt_emb'] = np.load(os.path.join(self.args.offline_language_path, '{}_{}_{}.npy'.format(index, self.language_suffix, self.split)))
+            res['txt_emb'] = np.load(os.path.join(self.args.offline_language_path,
+                                                  '{}_{}_{}.npy'.format(index, self.language_suffix, self.split)))
 
         if self.extract_text:  # for temporary extractor
             if not self.args.use_clip_language:
@@ -166,7 +176,7 @@ class ListeningDataset(Dataset):
                 res['token_num'] = token_num.numpy().astype(np.int64)
             else:
                 res['clip_inds'] = clip_indices
-            # TODO: please make sure that we wouldn't change the data reading strategy!!
+            # TODO: please make sure that we wouldn't change the data reading strategy in the future!!
             return res
         # if self.pretrain:
         #     ## entire seq replace for now
@@ -185,9 +195,9 @@ class ListeningDataset(Dataset):
         #     token_inds, mlm_label = self.random_word(token_inds, self.bert_tokenizer.vocab, mask_prob=0.15
 
         # Make a context of distractors
-        context = self.prepare_distractors(scan, target)  # default 51
+        context = self.prepare_distractors(scan, target)  # default max: 51
 
-        # Add target object in 'context' list
+        # Add target object in 'context' list at random position
         target_pos = np.random.randint(len(context) + 1)
         context.insert(target_pos, target)
 
@@ -284,7 +294,7 @@ class ListeningDataset(Dataset):
         res['context_size'] = len(samples)
 
         # take care of padding, so that a batch has same number of N-objects across scans.
-        res['objects'] = pad_samples(samples, self.max_context_size)
+        res['objects'] = pad_samples(samples, self.max_context_size)  # 没用到部分填1
 
         # Get a mask indicating which objects have the same instance-class as the target.
         target_class_mask = np.zeros(self.max_context_size, dtype=np.bool)
@@ -353,32 +363,25 @@ class ListeningDataset(Dataset):
             res['coords_2d'] = coords_2d
             return res
 
-        # load cached 2D context information
-        # if os.path.isfile(
-        #         '/localdisk2/zyang39/DATASET/scannet/tasks/scannet_frames_25k_gtobjfeat_aggregate/%s.npy' % scan.scan_id):
-        #     context_2d = np.load(
-        #         '/localdisk2/zyang39/DATASET/scannet/tasks/scannet_frames_25k_gtobjfeat_aggregate/%s.npy' % scan.scan_id,
-        #         allow_pickle=True, encoding='latin1')
-        # DONE: add memcache to reduce IO stress
-        # if os.path.isfile('%s/%s.npy' % (self.offline_2d_feat, scan.scan_id)):  # use a online feature? 取决于算得快还是读得快
-        #     context_2d = np.load(
-        #         '%s/%s.npy' % (self.offline_2d_feat, scan.scan_id),
-        #         allow_pickle=True, encoding='latin1')
-
         # TODO: read in image patches if use_clip_visual is enabled, 用于计划2
+        objfeat_2d = False if self.use_online_visual else True  # set objfeat_2d to False if planning to use online RoI
+        # TODO: 检查对obj_feat2d的引用情况
+
         if not self.args.offline_cache:  # no caching...
             # context_2d = np.load('%s/%s.npy' % (self.offline_2d_feat, scan.scan_id),
             #                      allow_pickle=True, encoding='latin1')
             # choose objfeat_2d based on args.feat2d
             if self.args.feat2d.startswith('ROI'):
-                objfeat_2d = self._load_split_offline_npy(scan.scan_id, 'obj_feat')
+                objfeat_2d = self._load_split_offline_npy(scan.scan_id, 'obj_feat') if objfeat_2d else False
                 featdim = 2048
             elif self.args.feat2d.startswith('CLIP_add'):
                 objfeat_2d = self._load_split_offline_npy(scan.scan_id, 'clip_region_feat') + \
-                             self._load_split_offline_npy(scan.scan_id, 'clip_scaled_region_feat')
+                             self._load_split_offline_npy(scan.scan_id,
+                                                          'clip_scaled_region_feat') if objfeat_2d else False
                 featdim = 768
             elif self.args.feat2d.startswith('CLIP'):  # feat that do not norm!! should consider?
-                objfeat_2d = self._load_split_offline_npy(scan.scan_id, 'clip_region_feat')  # also do not norm...
+                objfeat_2d = self._load_split_offline_npy(scan.scan_id,
+                                                          'clip_region_feat') if objfeat_2d else False  # also do not norm...
                 featdim = 768
             else:
                 raise NotImplemented("Not recognized feat2d keys: {}".format(self.args.feat2d))
@@ -392,17 +395,19 @@ class ListeningDataset(Dataset):
             campose_2d = self._load_split_offline_npy(scan.scan_id, 'camera_pose')
             # ins_id_2d = context_2d.item()['instance_id']
             ins_id_2d = self._load_split_offline_npy(scan.scan_id, 'instance_id')
+            frame_id_2d = self._load_split_offline_npy(scan.scan_id, 'frame_id')
 
         else:  # read cache
             if self.args.feat2d.startswith('ROI'):
-                objfeat_2d = self._cache_reader(scan.scan_id, 'obj_feat')  # also do not norm...
+                objfeat_2d = self._cache_reader(scan.scan_id,
+                                                'obj_feat') if objfeat_2d else False  # also do not norm...
                 featdim = 2048
             elif self.args.feat2d.startswith('CLIP_add'):
                 objfeat_2d = self._cache_reader(scan.scan_id, 'clip_region_feat') + self._cache_reader(scan.scan_id,
-                                                                                                       'clip_scaled_region_feat')
+                                                                                                       'clip_scaled_region_feat') if objfeat_2d else False
                 featdim = 768
             elif self.args.feat2d.startswith('CLIP'):  # feat that do not norm!! should consider?
-                objfeat_2d = self._cache_reader(scan.scan_id, 'clip_region_feat')
+                objfeat_2d = self._cache_reader(scan.scan_id, 'clip_region_feat') if objfeat_2d else False
                 featdim = 768
             else:
                 raise NotImplemented("Not recognized feat2d keys: {}".format(self.args.feat2d))
@@ -412,34 +417,51 @@ class ListeningDataset(Dataset):
             # obj_depth = self._cache_reader(scan.scan_id, 'obj_depth')
             campose_2d = self._cache_reader(scan.scan_id, 'camera_pose')
             ins_id_2d = self._cache_reader(scan.scan_id, 'instance_id')
+            frame_id_2d = self._cache_reader(scan.scan_id, 'frame_id')
 
         if self.args.clsvec2d:
             featdim += self.num_class_dim
 
-        feat_2d = np.zeros((self.max_context_size, featdim)).astype(np.float32)
+        if self.use_online_visual:  # if not loading offline features, we provide loaded images and bbox for pretrained Faster-RCNN
+            feat_2d = None
+        else:
+            feat_2d = np.zeros((self.max_context_size, featdim)).astype(np.float32)
+
         coords_2d = np.zeros((self.max_context_size, 4 + 12)).astype(np.float32)
         # coords_2d = np.zeros((self.max_context_size, 4+1+12)).astype(np.float32)
 
         selected_2d_idx = 0
         # selected_2d_idx = [random.randint(0, max(0,int((ins_id_2d[ii,:]!=0).astype(np.float32).sum())-1)) for ii in range(ins_id_2d.shape[0])]
-        ##
-        selected_context_id = [o.object_id + 1 for o in context]  # background included in cache, so +1
+        #
+        selected_context_id = [o.object_id + 1 for o in context]  # background included, so +1
         # print(scan.scan_id,objfeat_2d.shape,selected_context_id)
 
         # first choose, all view-0 on dim 1
-        selected_objfeat_2d = objfeat_2d[selected_context_id, selected_2d_idx, :]  ## ROI feat_2d
+        if self.use_online_visual:
+            selected_objfeat_2d = None
+        else:
+            selected_objfeat_2d = objfeat_2d[selected_context_id, selected_2d_idx, :]  ## ROI feat_2d
+
         selected_bbox_2d = bbox_2d[selected_context_id, selected_2d_idx, :]
         # selected_bboxsize_2d = bboxsize_2d[selected_context_id, selected_2d_idx]
         # selected_obj_depth = obj_depth[selected_context_id, selected_2d_idx]
         selected_campose_2d = campose_2d[selected_context_id, selected_2d_idx, :]
         # selected_ins_id_2d = ins_id_2d[selected_context_id, selected_2d_idx]
+        selected_frame_id_2d = frame_id_2d[selected_context_id, selected_2d_idx]
 
         # if True:  # use random selected_2d_idx, instead of 0 (dummy if True, removed)
+        # context_to_view = dict()  # 记录对每个context选了第几个view (随机的)
+
         for ii in range(len(selected_context_id)):
             cxt_id = selected_context_id[ii]
             view_id = random.randint(0, max(0, int((ins_id_2d[cxt_id, :] != 0).astype(
-                np.float32).sum()) - 1))  # 对每个context_obj 随机一个view
-            selected_objfeat_2d[ii, :] = objfeat_2d[cxt_id, view_id, :]  ## ROI feat_2d
+                np.float32).sum()) - 1))  # 对每个context object 随机一个有效的view，view_id保证index的frame都是有效的
+            # 注意，由于采样率问题(100 frames -> view)，很可能会有某个3D Object没有任何一个有效的2D image！
+            # context_to_view[cxt_id] = view_id
+            if self.use_online_visual:
+                selected_frame_id_2d[ii] = frame_id_2d[cxt_id, view_id]  # need frame id to reference RGB image
+            else:
+                selected_objfeat_2d[ii, :] = objfeat_2d[cxt_id, view_id, :]  ## ROI feat_2d
             selected_bbox_2d[ii, :] = bbox_2d[cxt_id, view_id, :]
             # selected_bboxsize_2d[ii] = bboxsize_2d[cxt_id, view_id]
             # selected_obj_depth[ii] = obj_depth[cxt_id, view_id]
@@ -449,6 +471,52 @@ class ListeningDataset(Dataset):
         #     feat_2d[:len(selected_context_id), :2048] = selected_objfeat_2d  ## ROI feat_2d
 
         # paste 2D feature
+        if self.use_online_visual:
+            # construct 2D file list  (unreasonable memory consumption? should try it out!)
+            frame_id_to_context = defaultdict(list)
+            for jj in range(len(selected_context_id)):  # for each context object
+                # cxt_id = selected_context_id[jj]   #
+                frame_id = selected_frame_id_2d[jj]
+                bbox = selected_bbox_2d[jj]  # xyxy format, np array
+                # frame_id_to_context[frame_id].append({
+                #     'order_id': jj,  # order_id used to indicate bbox<->object (whether it is a target)
+                #     'bbox': bbox
+                # })
+                frame_id_to_context[frame_id].append((jj, bbox))
+
+            if self.args.use_frcn_visual:
+                im_list, im_scale_list = [], []
+                # we have to self-define a collate_fn, to allow size-mutable frame_list...
+                im_to_obj = []  # index 0: [obj_list, bbox_list]
+
+                for frame_id in frame_id_to_context.keys():  # for each selected frame
+                    img_path = os.path.join(self.args.rgb_path, scan.scan_id, 'color', '%06d.jpg' % frame_id)
+                    im, im_scale = frcn_image_transform(img_path)
+                    # res['im'], res['im_scale'], res['im_to_obj']
+                    im_list.append(im)
+                    im_scale_list.append(im_scale)
+                    im_to_obj.append(frame_id_to_context[frame_id])
+
+                res['im'] = im_list
+                res['im_scale'] = im_scale_list
+                res['im_to_obj'] = im_to_obj  # [[(4, bbox1), (7, bbox2)](第一个frame里的obj,bbox对应), [], ...]
+            elif self.args.use_clip_visual:
+                clip_img_data = np.zeros((self.max_context_size, 3, self.clip_img_size, self.clip_img_size),
+                                         dtype=np.float32)  # store img data, some of object image will be zero
+                for frame_id in frame_id_to_context.keys():  # for each selected frame
+                    img_path = os.path.join(self.args.rgb_path, scan.scan_id, 'color', '%06d.jpg' % frame_id)
+                    img = to_tensor_loader(Image.open(img_path, 'r').convert('RGB'))  # full img here (C, H, W)
+                    for obj, bbox in frame_id_to_context[frame_id]:
+                        x1, y1, x2, y2 = bbox
+                        region_crop = img[:, y1:y2, x1:x2]
+                        region_crop = self.clip_transform(region_crop)  # (3, clip_size, clip_size)
+                        clip_img_data[obj] = region_crop  # imexplict convesion from tensor to nparray
+                res['clip_crops'] = clip_img_data  # (max_context_size, 3, clip_size, clip_size)
+
+            else:
+                raise NotImplemented()
+
+        # TODO: move class vector pasting to model.forward
         if self.args.feat2d.startswith('ROI'):
             feat_2d[:len(selected_context_id), :2048] = selected_objfeat_2d
         elif self.args.feat2d.startswith('CLIP'):
@@ -475,8 +543,8 @@ class ListeningDataset(Dataset):
         # print([o.object_id for o in context])
         # print([o.instance_label for o in context])
         # exit(0)
-        res['feat_2d'] = feat_2d
-        res['coords_2d'] = coords_2d
+        res['feat_2d'] = feat_2d  # always need this, whether online or offline
+        res['coords_2d'] = coords_2d  # bbox + cam_pose
         # res['feat_2d'] = np.random.random(feat_2d.shape).astype(np.float32)
         # res['coords_2d'] = np.random.random(coords_2d.shape).astype(np.float32)
 
@@ -613,8 +681,10 @@ def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb, 
         if split == 'test':
             seed = args.random_seed
 
+        # not_stacked_keys = ['im', 'im_scale'] if args.rgb_path != "" else None\
+        not_stacked_keys = None  # TODO: FRCN Training impossible for now
         data_loaders[split] = dataset_to_dataloader(dataset, split, args.batch_size, n_workers, pin_memory=False,
-                                                    seed=seed)
+                                                    seed=seed, not_stacked_keys=not_stacked_keys)
 
     return data_loaders
 
@@ -673,7 +743,7 @@ def make_extractor_data_loaders(args, referit_data, vocab, class_to_idx, scans, 
                                    addlabel_words=args.addlabel_words,
                                    num_class_dim=525 if '00' in args.scannet_file else 608,
                                    # 判断似乎有问题？Tips: Nr3D和Sr3D的type数量不同
-                                   evalmode=(args.mode == 'evaluate'))  # 在训练途中的eval怎么办？
+                                   evalmode=(args.mode == 'evaluate'))  # 在训练途中的eval怎么办？ 不用管，eval时给不给2D，输出都一样
 
         if split == 'train' and cut_prefix_num is not None:  # split subset form profiling
             dataset = Subset(dataset, np.arange(cut_prefix_num))

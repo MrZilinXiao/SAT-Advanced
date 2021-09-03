@@ -39,7 +39,7 @@ CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-s
 
 (ROI evaluate) 47.6+-0.2
 CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=2 --transformer --experiment-tag=roi_feat \
---model mmt_referIt3DNet -scannet-file /dev/shm/keep_all_points_00_view_with_global_scan_alignment.pkl \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 --resume-path /data/logs/roi_feat/08-16-2021-19-38-29/checkpoints/best_model.pth -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --unit-sphere-norm True \
 --feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --n-workers 4 --analyze-evaluate
@@ -59,7 +59,23 @@ CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 -
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4 --wandb-log --git-commit
+--save-args --norm-visual-feat --n-workers 4 --wandb-log --git-commit
+
+(pure CLIP norm)
+CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 --transformer --experiment-tag=clip_norm \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 4 --wandb-log --git-commit
+
+(pure CLIP norm fixed 修复了classvec参与norm的bug)
+CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=36 --gpu=3 --transformer --experiment-tag=clip_norm_fixed \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 4 --wandb-log --git-commit
 
 (CLIP_add norm evaluate)  47.4 (0.2)
 CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=2 --transformer --experiment-tag=roi_feat \
@@ -76,7 +92,7 @@ CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=24 --gpu=1 -
 --clip-backbone RN50x16 --use-clip-language \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4 --wandb-log --git-commit
+--save-args --norm-visual-feat --n-workers 4 --wandb-log --git-commit
 
 (重置CLIP)  clip_lang/08-26-2021-12-43-11
 CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=24 --gpu=1 --transformer --experiment-tag=clip_lang \
@@ -85,7 +101,7 @@ CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=24 --gpu=1 -
 --clip-backbone RN50x16 --use-clip-language \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4 --init-language
+--save-args --norm-visual-feat --n-workers 4 --init-language
 
 (之前ok的clip-add-norm base，但重置一下textbert，看看bert预训练的消融 -- 分析原因的实验)  clip_add_norm/08-26-2021-16-41-50
 CUDA_VISIBLE_DEVICES=0 python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 --transformer --experiment-tag=clip_add_norm \
@@ -93,7 +109,7 @@ CUDA_VISIBLE_DEVICES=0 python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 -
 -offline-2d-feat /data/meta-ScanNet/split_feat/ --init-language \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4 --wandb-log --git-commit
+--save-args --norm-visual-feat --n-workers 4 --wandb-log --git-commit
 
 (只用EOS不做text_projection的CLIP-direct)  clip_lang_eos/08-26-2021-23-39-59
 CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 --transformer --experiment-tag=clip_lang_eos \
@@ -102,7 +118,7 @@ CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 -
 --clip-backbone RN50x16 --use-clip-language \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4 --direct-eos --wandb-log --git-commit
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --wandb-log --git-commit
 
 (只用EOS，freeze CLIP language + learnable projection, 修复了clip backbone的学习率问题) clip_lang_eos_freeze_proj/08-27-2021-20-20-23
 CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=26 --gpu=3 --transformer --experiment-tag=clip_lang_eos_freeze_proj \
@@ -111,7 +127,16 @@ CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=26 --gpu=3 -
 --clip-backbone RN50x16 --use-clip-language \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj --wandb-log --git-commit
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj --wandb-log --git-commit
+
+(只用EOS，freeze CLIP language + learnable projection, 验证结果)
+CUDA_VISIBLE_DEVICES=3 python main.py  --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=3 --transformer --experiment-tag=clip_lang_eos_freeze_proj \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+--resume-path /data/logs/clip_lang_eos_freeze_proj/08-27-2021-20-20-23/checkpoints/best_model.pth -offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--clip-backbone RN50x16 --use-clip-language \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj
 
 (只用EOS，freeze CLIP language + learnable projection，不再载入text encoder，希望重现上面的结果)
 CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=26 --gpu=3 --transformer --experiment-tag=clip_lang_eos_freeze_proj \
@@ -120,16 +145,59 @@ CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=26 --gpu=3 -
 --use-clip-language --offline-language-type clip --offline-language-path /data/meta-ScanNet/nr3d_clip_text/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj --wandb-log --git-commit
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj --wandb-log --git-commit
 
-(freeze text bert + learnable projection, 对标clip_add_norm的baseline)
+(只用EOS，freeze CLIP language + learnable projection，不再载入text encoder， 验证结果)
+CUDA_VISIBLE_DEVICES=3 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=3 --transformer --experiment-tag=clip_lang_eos_freeze_proj \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+--resume-path /data/logs/clip_lang_eos_freeze_proj/08-29-2021-11-04-28/checkpoints/best_model.pth -offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--use-clip-language --offline-language-type clip --offline-language-path /data/meta-ScanNet/nr3d_clip_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj
+
+(freeze text bert + learnable projection, 对标clip_add_norm的baseline)  bert_lang_freeze_proj/08-29-2021-18-18-18
 CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 --transformer --experiment-tag=bert_lang_freeze_proj \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 --use-clip-language --offline-language-type bert --offline-language-path /data/meta-ScanNet/nr3d_bert_text/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
---save-args --norm-offline-feat --n-workers 4 --direct-eos --add-lang-proj --wandb-log --git-commit
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --add-lang-proj --wandb-log --git-commit
+
+(freeze text bert + learnable projection, 减少max-distractors到25)
+CUDA_VISIBLE_DEVICES=0 python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 --transformer --experiment-tag=bert_lang_freeze_proj \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--use-clip-language --offline-language-type bert --offline-language-path /data/meta-ScanNet/nr3d_bert_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --add-lang-proj --wandb-log --git-commit \
+--max-distractors 25
+
+
+(freeze text bert + learnable projection, 验证结果)   单独eval模式有问题，pending to solve...
+CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=2 --transformer --experiment-tag=bert_lang_freeze_proj \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+--use-clip-language --offline-language-type bert --offline-language-path /data/meta-ScanNet/nr3d_bert_text/ \
+--resume-path /data/logs/bert_lang_freeze_proj/08-29-2021-18-18-18/checkpoints/best_model.pth -offline-2d-feat /data/meta-ScanNet/split_feat/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d --n-workers 4  \
+--analyze-evaluate --add-lang-proj --norm-visual-feat --direct-eos
+
+(freeze text bert + learnable projection, resume to epoch 200, skip-train to debug)  无问题
+CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 --transformer --experiment-tag=bert_lang_freeze_proj \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--resume-path /data/logs/bert_lang_freeze_proj/08-29-2021-18-18-18/checkpoints/best_model.pth --fine-tune True --max-train-epochs 150 --patience 150 \
+--use-clip-language --offline-language-type bert --offline-language-path /data/meta-ScanNet/nr3d_bert_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --add-lang-proj --skip-train
+
+(debug实验: clip online visual + freeze clip language)
+
+
 """
 
 import time
@@ -156,6 +224,8 @@ from utils import set_gpu_to_zero_position, seed_training_code, create_logger, w
 from utils.scheduler import GradualWarmupScheduler
 from utils.tf_visualizer import Visualizer
 
+train_meters = dict()
+
 if __name__ == '__main__':
     def log_train_test_information():
         """Helper logging function.
@@ -164,9 +234,12 @@ if __name__ == '__main__':
         logger.info('Epoch:{}'.format(epoch))
         for phase in ['train', 'test']:
             if phase == 'train':
-                meters = train_meters
+                meters = train_meters  # if skip-train, no train_meters available
             else:
                 meters = test_meters
+
+            if len(meters) == 0:
+                continue  # if skip-train
 
             info = '{}: Total-Loss {:.4f}, Listening-Acc {:.4f}'.format(phase,
                                                                         meters[phase + '_total_loss'],
@@ -311,7 +384,7 @@ if __name__ == '__main__':
         # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[60,80], gamma=0.1)
         # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[23,37,43,51,60,71,79,87], gamma=0.65)    ## custom1
         lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 40, 50, 60, 70, 80, 90],
-                                                            gamma=0.65)  # in our setting
+                                                            gamma=0.65)  # in our SAT setting
         # if args.max_train_epochs == 120:
         #     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
         #                                                         milestones=[25, 40, 55, 70,
@@ -401,7 +474,7 @@ if __name__ == '__main__':
             for epoch in bar:
                 # Train:
                 if args.warmup:
-                    print('warmup triggered...')
+                    logger.info('warmup triggered...')
                     scheduler_warmup.step(epoch=epoch, metrics=eval_acc)  # using the previous epoch's metrics
                 logger.info('Current LR (epoch {}): rest {}, backbone {}'.format(epoch, optimizer.param_groups[0]['lr'],
                                                                                  optimizer.param_groups[1]['lr']))

@@ -480,7 +480,7 @@ def evaluate_on_dataset(model, data_loader, criteria, device, pad_idx, args, ran
     cls_acc_mtr = AverageMeter()
     txt_acc_mtr = AverageMeter()
 
-    # Set the model in training mode
+    # Set the model in eval mode
     model.eval()
 
     assert (randomize == False)
