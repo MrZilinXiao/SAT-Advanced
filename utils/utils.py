@@ -12,11 +12,35 @@ from loguru import logger
 import os.path as osp
 from six.moves import cPickle
 from six.moves import range
-# from collections import defaultdict
+from collections import defaultdict
+
+
 #
 #
 # def invert_defaultdict(d, constructor=list):
 #     inv_dict = defaultdict(constructor)
+
+def model_param_counter(model: torch.nn.Module, split_list=None):
+    total_params = sum(p.numel() for p in model.parameters())
+    total_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    res = {
+        'total': total_params,
+        'trainable': total_trainable_params,
+    }
+    if split_list is not None:
+        split_count = defaultdict(int)
+        assert isinstance(split_list, list)
+        for key_word in split_list:
+            for kv in model.named_parameters():  # kv[0], kv[1]
+                if key_word in kv[0]:
+                    split_count[key_word] += kv[1].numel()
+
+        # merge res and split_count
+        res.update(split_count)
+
+    return res
+
 
 def invert_dictionary(d):
     inv_map = {v: k for k, v in six.iteritems(d)}
@@ -216,3 +240,8 @@ def wandb_init(args):
                # sync_tensorboard=True,
                name='-'.join(args.log_dir.split('/')[-2:])
                )
+
+
+def prepare_cuda():
+    print('init cuda...')
+    torch.zeros(1, device='cuda')

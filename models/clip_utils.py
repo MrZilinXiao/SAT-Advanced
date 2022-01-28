@@ -39,7 +39,8 @@ class OnlineCLIP(nn.Module):
             model.transformer = nn.Identity()
             model.token_embedding = nn.Identity()
             model.ln_final = nn.Identity()
-            model.positional_embedding = nn.Identity()
+            # model.positional_embedding = nn.Identity()
+            model.positional_embedding = None
 
         else:  # tell using direct EOS or text_projection
             logger.info("CLIP Language Enabled, Using {} as lang_clf logits...".format(
@@ -84,7 +85,7 @@ class OnlineCLIP(nn.Module):
 
     def freeze_text(self):
         self.model.transformer.eval()
-        set_layer(self.model.transformer, requires_grad=False)
+        set_embed_or_standalone_layer(self.model.transformer, requires_grad=False)
 
         self.model.token_embedding.eval()
         set_embed_or_standalone_layer(self.model.token_embedding, requires_grad=False)
@@ -97,7 +98,7 @@ class OnlineCLIP(nn.Module):
 
     def unfreeze_text(self):
         self.model.transformer.train()
-        set_layer(self.model.transformer, requires_grad=True)
+        set_embed_or_standalone_layer(self.model.transformer, requires_grad=True)
 
         self.model.token_embedding.train()
         set_embed_or_standalone_layer(self.model.token_embedding, requires_grad=True)

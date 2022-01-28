@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-s
 --feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --n-workers 4 --analyze-evaluate
 
 (ROI evaluate) 47.6+-0.2
-CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=2 --transformer --experiment-tag=roi_feat \
+CUDA_VISIBLE_DEVICES=0 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=0 --transformer --experiment-tag=roi_feat \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 --resume-path /data/logs/roi_feat/08-16-2021-19-38-29/checkpoints/best_model.pth -offline-2d-feat /data/meta-ScanNet/split_feat/ \
 -referit3D-file /data/meta-ScanNet/nr3d.csv --unit-sphere-norm True \
@@ -69,7 +69,7 @@ CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 -
 --feat2d CLIP --clsvec2d --context_2d unaligned --mmt_mask train2d \
 --save-args --norm-visual-feat --n-workers 4 --wandb-log --git-commit
 
-(pure CLIP norm fixed 修复了classvec参与norm的bug)
+(pure CLIP norm fixed 修复了classvec参与norm的bug) -- 结论：classvec不参与norm反而降点
 CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=36 --gpu=3 --transformer --experiment-tag=clip_norm_fixed \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
@@ -138,7 +138,7 @@ CUDA_VISIBLE_DEVICES=3 python main.py  --mode evaluate --init-lr 0.0001 --batch-
 --feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
 --save-args --norm-visual-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj
 
-(只用EOS，freeze CLIP language + learnable projection，不再载入text encoder，希望重现上面的结果)
+(只用EOS，freeze CLIP language + learnable projection，不再载入text encoder，希望重现上面的结果) clip_lang_eos_freeze_proj/08-29-2021-11-04-28
 CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=26 --gpu=3 --transformer --experiment-tag=clip_lang_eos_freeze_proj \
 --model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/meta-ScanNet/split_feat/ \
@@ -196,14 +196,94 @@ CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 -
 --save-args --norm-visual-feat --n-workers 4 --direct-eos --add-lang-proj --skip-train
 
 (debug实验: clip online visual + freeze clip language)
+CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 --transformer --experiment-tag=clip_visual_freeze_clip_lang \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--clip-backbone RN50x16 --use-clip-visual --offline-language-type bert --offline-language-path /data/meta-ScanNet/nr3d_bert_text/ \
+--rgb-path /data/ScanNet/tasks/scannet_frames_25k/scannet_frames_25k \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --n-workers 4 --add-lang-proj --wandb-log --git-commit
+(feat2d not used anymore, remove norm-visual-feat)
 
+(clip_add_norm + clip_lang_proj -> no lang_cls_loss)
+CUDA_VISIBLE_DEVICES=3 python main.py --init-lr 0.0001 --batch-size=26 --gpu=3 --transformer --experiment-tag=clip_both_freeze_no_lang_loss \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--use-clip-language --offline-language-type clip --offline-language-path /data/meta-ScanNet/nr3d_clip_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj --wandb-log --git-commit \
+--lang-cls-alpha 0
 
+(clip_add_norm + clip_lang_no_proj)  仔细一想，proj层本身是有问题的，试一下不加
+CUDA_VISIBLE_DEVICES=2 python main.py --init-lr 0.0001 --batch-size=26 --gpu=2 --transformer --experiment-tag=clip_both_freeze_no_proj \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--use-clip-language --offline-language-type clip --offline-language-path /data/meta-ScanNet/nr3d_clip_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --freeze-clip-language --wandb-log --git-commit
+
+(clip_add_norm + clip_lang_mmt_no_eos)
+CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=26 --gpu=1 --transformer --experiment-tag=clip_both_freeze_mmt_no_eos \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--use-clip-language --offline-language-type clip --offline-language-path /data/meta-ScanNet/nr3d_clip_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP_add --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 4 --direct-eos --freeze-clip-language --add-lang-proj --wandb-log --git-commit \
+--mmt-no-eos
+
+(2021年12月01日 新实验，2D random key frame) current SOTA
+CUDA_VISIBLE_DEVICES=0 python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 --transformer --experiment-tag=key_frame_clip \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 8 --git-commit --key_frame_choice clip
+
+(2D random key frame + freeze text encoder)
+CUDA_VISIBLE_DEVICES=0 python main.py --init-lr 0.0002 --batch-size=36 --gpu=0 --transformer --experiment-tag=key_frame_frozen \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--use-clip-language --offline-language-type bert --offline-language-path /data/meta-ScanNet/nr3d_bert_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 8 --direct-eos --add-lang-proj --git-commit --key_frame_choice clip
+
+(2D random key frame + fix loss)
+CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0001 --batch-size=36 --gpu=1 --transformer --experiment-tag=key_frame_fix_loss \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 8 --git-commit --key_frame_choice clip --loss-mask True
+
+(2D random key frame + freeze text encoder + pretrained PNet)
+CUDA_VISIBLE_DEVICES=0 python main.py --init-lr 0.0002 --batch-size=36 --gpu=0 --transformer --experiment-tag=key_frame_frozen_pretrain_pnet \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--use-clip-language --offline-language-type bert --offline-language-path /data/meta-ScanNet/nr3d_bert_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 8 --direct-eos --add-lang-proj --git-commit --key_frame_choice clip \
+--load-pretrained-obj-encoder /home/xiaozilin/CLIP-Transfer/log/classification/2021-12-06_19-21/checkpoints/best_model.pth
+
+(2D random key frame clip_add + freeze text encoder + pretrained obj encoder)
+CUDA_VISIBLE_DEVICES=1 python main.py --init-lr 0.0002 --batch-size=36 --gpu=1 --transformer --experiment-tag=add_key_frame_frozen_pretrained_pnet \
+--model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/meta-ScanNet/split_feat/ \
+--use-clip-language --offline-language-type bert --offline-language-path /data/meta-ScanNet/nr3d_bert_text/ \
+-referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d CLIP --clsvec2d --context_2d unaligned --mmt_mask train2d \
+--save-args --norm-visual-feat --n-workers 8 --direct-eos --add-lang-proj --git-commit --key_frame_choice clip_add \
+--load-pretrained-obj-encoder /home/xiaozilin/CLIP-Transfer/log/classification/2021-12-06_19-21/checkpoints/best_model.pth
 """
 
 import time
 import torch
 import torch.nn as nn
-# from loguru import logger
 from torch import optim
 from termcolor import colored
 import tqdm
@@ -216,7 +296,8 @@ from in_out.arguments import parse_arguments
 from in_out.neural_net_oriented import compute_auxiliary_data, trim_scans_per_referit3d_data
 from in_out.neural_net_oriented import load_scan_related_data, load_referential_data
 # from in_out.pt_datasets.listening_dataset import make_data_loaders
-from in_out.pt_datasets.listening_dataset_2dcontext import make_data_loaders
+from in_out.pt_datasets.listening_dataset_2dcontext import make_data_loaders as make_data_loaders_2dcontext
+from in_out.pt_datasets.listening_dataset_obj_fusion import make_data_loaders as make_data_loaders_keyframe
 # from in_out.pt_datasets.listening_dataset_2dcontext_numpy import make_data_loaders    # will this solve issue?
 
 from models.sat_net import instantiate_referit3d_net
@@ -278,12 +359,18 @@ if __name__ == '__main__':
     # Read the scan related information
     all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(args.scannet_file)
 
+    # Shijia's language-guided loss -- part1, load text labels from `class_to_idx`
+    class_name_list = list(class_to_idx.keys())
+
     # Read the linguistic data of ReferIt3D
     referit_data = load_referential_data(args, args.referit3D_file, scans_split)  # nr3d.csv/sr3d.csv就ok
 
     # Prepare data & compute auxiliary meta-information.
     all_scans_in_dict = trim_scans_per_referit3d_data(referit_data, all_scans_in_dict)
     mean_rgb, vocab = compute_auxiliary_data(referit_data, all_scans_in_dict, args)
+
+    make_data_loaders = make_data_loaders_keyframe if args.key_frame_choice is not None else make_data_loaders_2dcontext
+
     data_loaders = make_data_loaders(args, referit_data, vocab, class_to_idx, all_scans_in_dict, mean_rgb,
                                      cut_prefix_num=1000 if args.profile or args.debug else None)
 
@@ -370,10 +457,10 @@ if __name__ == '__main__':
                 rest_param.append(kv[1])
         optimizer = optim.Adam([{'params': filter(lambda p: p.requires_grad, rest_param)},
                                 {'params': filter(lambda p: p.requires_grad, backbone_param), 'lr': args.init_lr / 10.}],
-                               lr=args.init_lr)  # text_bert or other backbone -> 1/10 LR
+                               lr=args.init_lr)  # text_bert or other text backbone -> 1/10 LR
 
         sum_backbone = sum([param.nelement() for param in backbone_param])
-        sum_fusion = sum([param.nelement() for param in rest_param])
+        sum_fusion = sum([param.nelement() for param in rest_param])  # fusion include pointnet2
         sum_all = sum([param.nelement() for param in model.parameters()])
         logger.info('backbone, fusion module parameters: {}, {}, {}'.format(sum_backbone, sum_fusion, sum_all))
 
@@ -432,6 +519,15 @@ if __name__ == '__main__':
                 logger.info('Ready to *fine-tune* the model for a max of {} epochs'.format(dummy))
         else:
             logger.info('Loaded model parameters, ready for evaluating...')
+
+    # if resume training, do not load the object encoder
+    if args.load_pretrained_obj_encoder:
+        if args.resume_path:
+            logger.warning("Pretrained Obj Encoder is forbidden since the entire checkpoint is loaded!")
+        else:
+            # model.object_encoder: PointNetPP
+            logger.info(f"Loading pretrained object encoder from {args.load_pretrained_obj_encoder}...")
+            load_state_dicts(args.load_pretrained_obj_encoder, model_state_dict=model.object_encoder)
 
     if args.pretrain_path:  # for evaluating abandoned
         load_model = torch.load(args.pretrain_path)

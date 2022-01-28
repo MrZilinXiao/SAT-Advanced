@@ -20,6 +20,7 @@ from maskrcnn_benchmark.layers import nms
 from maskrcnn_benchmark.modeling.detector import build_detection_model
 from maskrcnn_benchmark.structures.image_list import to_image_list
 from maskrcnn_benchmark.utils.model_serialization import load_state_dict
+# from maskrcnn_benchmark.structures.bounding_box import *
 """
 https://github.com/facebookresearch/maskrcnn-benchmark/blob/master/INSTALL.md
 """
@@ -29,10 +30,8 @@ equivlant detectron2 settings here:
 https://github.com/clip-vil/CLIP-ViL/blob/master/CLIP-ViL-Direct/vqa/mcan_clip_grid_feature.py
 https://github.com/clip-vil/CLIP-ViL/blob/c1d891776b58f40e4dc0ead6ccd1eab02c6ed45b/CLIP-ViL-Direct/vqa/pythia_clip_grid_feature.py#L73
 
-please notice that maskecnn_benchmark does not support input_boxes training...
+please notice that FB maskecnn_benchmark does not support input_boxes training...we should use https://github.com/ronghanghu/vqa-maskrcnn-benchmark-m4c
 
-TODO: check the grid feature below is usable and trainable?
-https://github.com/facebookresearch/grid-feats-vqa
 """
 
 
@@ -237,5 +236,4 @@ def main():
 
 
 if __name__ == '__main__':
-
     main()

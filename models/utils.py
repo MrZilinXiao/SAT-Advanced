@@ -72,7 +72,7 @@ def load_state_dicts(checkpoint_file, map_location=None, **kwargs):  # 这个是
         # if key != 'model':
         #     continue
         kwargs = {}
-        if key == 'model':
+        if key in ['model', 'model_state_dict']:
             kwargs['strict'] = False
         load_status = value.load_state_dict(checkpoint[key], **kwargs)
         if load_status is not None and str(load_status) != '<All keys matched successfully>':
@@ -92,7 +92,27 @@ def load_state_dicts(checkpoint_file, map_location=None, **kwargs):  # 这个是
     #     model_dict.update(pretrained_dict)
     #     value.load_state_dict(model_dict)
 
-    epoch = checkpoint.get('epoch')
-    best_test_acc = checkpoint.get('best_test_acc')
+    epoch = checkpoint.get('epoch', None)
+    best_test_acc = checkpoint.get('best_test_acc', None)
     # if epoch:
     return epoch, best_test_acc  # might be None!
+
+
+if __name__ == '__main__':
+    from models.default_blocks import single_object_encoder
+
+
+    class EncoderWrapper(nn.Module):
+        def __init__(self, obj_dim):
+            super(EncoderWrapper, self).__init__()
+            self.object_encoder = single_object_encoder(obj_dim)
+
+        def forward(self, x):
+            return self.object_encoder(x)
+
+    model = EncoderWrapper(768)
+
+    load_state_dicts('/home/xiaozilin/CLIP-Transfer/log/classification/2021-12-06_19-21/checkpoints/best_model.pth',
+                     model_state_dict=model.object_encoder)
+
+    print('Test done.')

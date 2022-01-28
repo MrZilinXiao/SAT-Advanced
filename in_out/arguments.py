@@ -17,6 +17,13 @@ def parse_arguments(notebook_options=None):
     parser = argparse.ArgumentParser(description='ReferIt3D Nets + Ablations')
 
     #
+    # key frame random choice or fusion params added: 2021年12月05日
+    #
+    parser.add_argument('--key_frame_choice', type=str, default=None)
+    parser.add_argument('--loss-mask', type=str2bool, default=False, help='Fixer for empty 2D/3D feature')
+    parser.add_argument('--load-pretrained-obj-encoder', type=str, default=None)  # allow load pretrained obj encoder
+
+    #
     # self-defined params for exp ease
     #
 
@@ -25,7 +32,7 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--profile', action='store_true', default=False,
                         help='Using torch.autograd.profiler.profile to profile performance')
     parser.add_argument('--debug', action='store_true', default=False)
-    parser.add_argument('--skip-train', action='store_true', default=False)  # do not training, just eval
+    parser.add_argument('--skip-train', action='store_true', default=False)  # do not training, just test
 
     #
     # CLIP related options
@@ -37,17 +44,20 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--use-clip-visual', action='store_true', default=False)  # online 2D CLIP feature
     parser.add_argument('--use-clip-language', action='store_true',
                         default=False)  # replace TextBERT, we now only possess `RN50x16` offline feature
-    parser.add_argument('--freeze-clip-language', action='store_true', default=False)  # whether to freeze CLIP text encoder
-    parser.add_argument('--add-lang-proj', action='store_true', default=False)  # add a learnable projection to frozen CLIP Text Encoder
-    parser.add_argument('--direct-eos', action='store_true', default=False)   # only applicable if use-clip-language
+    parser.add_argument('--freeze-clip-language', action='store_true',
+                        default=False)  # whether to freeze CLIP text encoder
+    parser.add_argument('--add-lang-proj', action='store_true',
+                        default=False)  # add a learnable projection to frozen CLIP Text Encoder
+    parser.add_argument('--direct-eos', action='store_true', default=False)  # only applicable if use-clip-language
 
     parser.add_argument('--init-language', action='store_true', default=False)
 
     #
     # online 2D visual extractor settings
     #
-    parser.add_argument('--rgb-path', type=str, default="")   # if online feature, we need 2D RGB input
-    parser.add_argument('--use-frcn-visual', action='store_true', default=False)   # can't be used for now, since FRCN do not support bbox optimizing
+    parser.add_argument('--rgb-path', type=str, default="")  # if online feature, we need 2D RGB input
+    parser.add_argument('--use-frcn-visual', action='store_true',
+                        default=False)  # can't be used for now, since FRCN do not support bbox optimizing
     parser.add_argument(
         "--detection_cfg", type=str,
         default='/data/pretrained_models/detectron_model.yaml',
@@ -61,10 +71,12 @@ def parse_arguments(notebook_options=None):
 
     # frozen language encoder setting
     parser.add_argument('--offline-language-type', type=str, default=None, choices=['clip', 'bert'])
-    parser.add_argument('--offline-language-path', type=str, default="")   # if offline language, we need language feat path
+    parser.add_argument('--offline-language-path', type=str,
+                        default="")  # if offline language, we need language feat path
+    parser.add_argument('--mmt-no-eos', action='store_true', default=False, help='Do not put [EOS] token feature into MMT.')
 
     # for extractor usage
-    parser.add_argument('--extract-text', action='store_true', default=False)   # if True, using text extractor
+    parser.add_argument('--extract-text', action='store_true', default=False)  # if True, using text extractor
 
     #
     # Non-optional arguments
@@ -134,7 +146,8 @@ def parse_arguments(notebook_options=None):
     # parser.add_argument('--graph-out-dim', type=int, default=128)
     # parser.add_argument('--dgcnn-intermediate-feat-dim', nargs='+', type=int, default=[128, 128, 128, 128])
 
-    parser.add_argument('--object-encoder', type=str, default='pnet_pp', choices=['pnet_pp', 'pnet'])
+    parser.add_argument('--object-encoder', type=str, default='pnet_pp', choices=['pnet_pp', 'pnet', 'pnet_pp_new'])
+    parser.add_argument('--object-encoder-pretrain-path', type=str, default=None)  # added 2021-12 for pretrained pnet2
     # parser.add_argument('--language-fusion', type=str, default='both', choices=['before', 'after', 'both'])
     # parser.add_argument('--word-dropout', type=float, default=0.1)
     # parser.add_argument('--knn', type=int, default=7, help='For DGCNN number of neighbors')
@@ -210,26 +223,6 @@ def parse_arguments(notebook_options=None):
             configs_dict = json.load(fin)
             apply_configs(args, configs_dict)
 
-    # Create logging related folders and arguments
-    if args.log_dir:
-        timestamp = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
-
-        if args.pretrain:
-            args.log_dir = args.log_dir
-        elif args.experiment_tag:
-            args.log_dir = osp.join(args.log_dir, args.experiment_tag, timestamp)
-        else:
-            args.log_dir = osp.join(args.log_dir, timestamp)
-
-        args.checkpoint_dir = create_dir(osp.join(args.log_dir, 'checkpoints'))
-        args.tensorboard_dir = create_dir(osp.join(args.log_dir, 'tb_logs'))
-
-    if args.resume_path and not args.log_dir:  # resume and continue training in previous log-dir.
-        checkpoint_dir = osp.split(args.resume_path)[0]  # '/xxx/yyy/log_dir/checkpoints/model.pth'
-        args.checkpoint_dir = checkpoint_dir
-        args.log_dir = osp.split(checkpoint_dir)[0]
-        args.tensorboard_dir = osp.join(args.log_dir, 'tb_logs')
-
     if args.use_clip_visual or args.use_clip_language:
         if args.use_clip_language and args.offline_language_type is not None:  # add exception on offline clip language
             pass
@@ -239,7 +232,7 @@ def parse_arguments(notebook_options=None):
     if args.use_clip_visual and args.use_frcn_visual:
         raise ValueError('You can only designate ONE 2D visual encoder!')
 
-    if args.use_clip_visual:
+    if args.use_clip_visual or args.use_frcn_visual:
         if args.rgb_path == "":
             raise ValueError("You need to indicate rgb_path when use_clip_visual is enabled!")
         logger.info("Using {} as RGB input...".format(args.rgb_path))
@@ -263,6 +256,27 @@ def parse_arguments(notebook_options=None):
 
     if args.offline_2d_feat is not None and args.offline_cache:
         logger.warning(colored('Offline Memory Caching Enabled...Overriding `offline_2d_feat`...', 'red'))
+
+    # Create logging related folders and arguments
+    # create these folders at last
+    if args.log_dir:
+        timestamp = datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
+
+        if args.pretrain:
+            args.log_dir = args.log_dir
+        elif args.experiment_tag:
+            args.log_dir = osp.join(args.log_dir, args.experiment_tag, timestamp)
+        else:
+            args.log_dir = osp.join(args.log_dir, timestamp)
+
+        args.checkpoint_dir = create_dir(osp.join(args.log_dir, 'checkpoints'))
+        args.tensorboard_dir = create_dir(osp.join(args.log_dir, 'tb_logs'))
+
+    if args.resume_path and not args.log_dir:  # resume and continue training in previous log-dir.
+        checkpoint_dir = osp.split(args.resume_path)[0]  # '/xxx/yyy/log_dir/checkpoints/model.pth'
+        args.checkpoint_dir = checkpoint_dir
+        args.log_dir = osp.split(checkpoint_dir)[0]
+        args.tensorboard_dir = osp.join(args.log_dir, 'tb_logs')
 
     # Print them nicely
     args_string = pprint.pformat(vars(args))

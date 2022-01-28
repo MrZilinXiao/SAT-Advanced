@@ -13,6 +13,8 @@ from in_out.vocabulary import Vocabulary
 from loguru import logger
 from termcolor import colored
 
+from torch.utils.checkpoint import checkpoint_sequential
+
 try:
     from . import PointNetPP
 except ImportError:
@@ -39,7 +41,8 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                  pretrain=False,
                  context_2d=None,
                  feat2dtype=None,
-                 mmt_mask=None):
+                 mmt_mask=None,
+                 class_name_list=None):
         """
         Parameters have same meaning as in Base3DListener.
         """
@@ -218,8 +221,11 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         # self.fw_3dfeat = nn.Sequential(nn.Linear(768, 768),
         #                     nn.ReLU(),
         #                     nn.Linear(768, 768))
+        # 2022-01-28 14:17:00 add Shijia
+        if class_name_list is not None:
+            
 
-    def __call__(self, batch: dict, evaluating=False) -> dict:
+    def __call__(self, batch: dict, test_or_eval=False) -> dict:
         """
         batch带的key解释：
         context_size： samples的数量
@@ -249,6 +255,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         # Get features for each segmented scan object based on color and point-cloud: 3D feature
         objects_features = get_siamese_features(self.object_encoder, batch['objects'],
                                                 aggregator=torch.stack)  # B X N_Objects x object-latent-dim
+        # batch['objects']: [bs, num_obj, num_points, 6]
 
         # 3D features
         obj_mmt_in = self.obj_feat_layer_norm(self.linear_obj_feat_to_mmt_in(objects_features)) + \
@@ -266,12 +273,12 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
 
         # choose the source of 2D feature
         if self.args.use_clip_visual:  # online clip visual
-            img_batch = batch['clip_crops']  # (N, obj_num, 3, 384, 384)
+            img_batch = batch['clip_crops']  # (N, obj_num, 3, 384, 384)   nearly 180MB raw images
             feat_2d = torch.zeros((img_batch.size(0), obj_num, self.featdim + self.num_class_dim),
                                   device=img_batch.device)  # N, obj, 768 + num_class
             for i in range(obj_num):  # too heavy? should try it out.
                 imgs = img_batch[:, i, :, :, :]  # N, 3, 384, 384
-                feats = self.clip_model.encode_image(imgs)
+                feats = self.clip_model.encode_image(imgs)   # this encode could use gradient checkpointing
                 feat_2d[:, i, :self.featdim] = feats
                 feat_2d[:, i, self.featdim:] = batch['feat_2d'][:, i, self.featdim:]  # paste the class vector
 
@@ -283,14 +290,17 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             raise NotImplemented()
         # feat_2d -> (N, obj_num, feat_size)
 
-        if self.args.norm_visual_feat:
-            # feat_2d /= feat_2d.norm(dim=-1, keepdim=True)
-            # fixed: only norm feat part, not the class vector part
+        if self.args.norm_visual_feat and not test_or_eval:
+            # assert
+            feat_2d /= feat_2d.norm(dim=-1, keepdim=True)  # !! norm on zero will produce NaN !!
             # non_zero_rows = torch.where(torch.sum())
-            for batch_num in range(feat_2d.size(0)):
-                non_zero_rows = torch.where(torch.sum(feat_2d[batch_num, :, :self.featdim], dim=1))[0]
-                # print(non_zero_rows.shape)
-                feat_2d[batch_num, non_zero_rows, :self.featdim] /= feat_2d[batch_num, non_zero_rows, :self.featdim].norm(dim=-1, keepdim=True)
+
+            # fixed norm does not outperform the original one: clip_norm_fixed/09-03-2021-16-44-07
+            # for batch_num in range(feat_2d.size(0)):
+            #     non_zero_rows = torch.where(torch.sum(feat_2d[batch_num, :, :self.featdim], dim=1))[0]
+            #     # print(non_zero_rows.shape)
+            #     feat_2d[batch_num, non_zero_rows, :self.featdim] /= feat_2d[batch_num, non_zero_rows, :self.featdim].norm(dim=-1, keepdim=True)
+            #     # fixed: only norm feat part, not the class vector part
         # Classify the segmented objects
         if self.object_clf is not None:
             objects_classifier_features = obj_mmt_in
@@ -371,8 +381,15 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                         txt_emb = self.clip_lang_out_linear(txt_emb)  # txt_dim remains the same
                     result['lang_logits'] = self.language_clf(txt_cls_emb)
 
-        else:  # just read in offline language, add an optional projection head
-            txt_emb = batch['txt_emb']  # [N, lang_size, d_model] lang_size = 24 / 77
+        else:  # just read in offline language, could choose adding an optional projection head or not
+            txt_emb = batch['txt_emb']  # [N, lang_size, d_model]  lang_size=24 by default
+
+            if self.args.offline_language_type == 'clip' and self.args.mmt_no_eos:  # mask [EOS] token feature
+                clip_txt_inds = batch['clip_inds']
+                mmt_txt_emb = txt_emb.clone()
+                mmt_txt_emb[torch.arange(txt_emb.shape[0]), clip_txt_inds.argmax(dim=-1)] = 0
+                # 注意，如果mmt_no_eos了，那么对MMT来说，加lang_proj就不管用了
+
             txt_mask = _get_mask(batch['token_num'].to(txt_emb.device), txt_emb.size(1))
             if self.args.offline_language_type == 'bert':
                 txt_emb = self.text_bert_out_linear_offline(txt_emb)
@@ -387,6 +404,9 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                     txt_cls_emb = txt_emb[torch.arange(txt_emb.shape[0]), clip_txt_inds.argmax(dim=-1)]  # N, 768
                     result['lang_logits'] = self.language_clf(txt_cls_emb)
 
+            if self.args.mmt_no_eos:
+                txt_emb = mmt_txt_emb
+
         mmt_results = self.mmt(
             txt_emb=txt_emb,  # N, lang_size, MMT_HIDDEN_SIZE
             txt_mask=txt_mask,
@@ -397,7 +417,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
 
         if self.args_mode == 'evaluate':
             assert (mmt_results['mmt_seq_output'].shape[1] == (
-                        self.text_length + 2 * obj_num))  # we just input zeros 2D when evaluating
+                    self.text_length + 2 * obj_num))  # we just input zeros 2D when evaluating
             # if not self.addlabel_words:
             #     assert (mmt_results['mmt_seq_output'].shape[1] == (self.text_length + obj_num))
             # else:
@@ -459,6 +479,8 @@ def instantiate_referit3d_net(args: argparse.Namespace, vocab: Vocabulary, n_obj
     # make an object (segment) encoder for point-clouds with color
     if args.object_encoder == 'pnet_pp':
         object_encoder = single_object_encoder(geo_out_dim)
+    elif args.object_encoder == 'pnet_pp_new':
+        pass
     else:
         raise ValueError('Unknown object point cloud encoder!')
 

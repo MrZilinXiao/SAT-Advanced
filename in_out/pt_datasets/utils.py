@@ -121,6 +121,18 @@ def pad_samples(samples, max_context_size, padding_value=1):
     return samples
 
 
+def pad_samples_fusion(samples, max_context_size, padding_value=1):
+    n_pad = max_context_size - len(samples)
+
+    if n_pad > 0:
+        shape = (max_context_size, samples.shape[1], samples.shape[2])
+        temp = np.ones(shape, dtype=samples.dtype) * padding_value
+        temp[:samples.shape[0], :samples.shape[1]] = samples
+        samples = temp
+
+    return samples, n_pad
+
+
 def check_segmented_object_order(scans):
     """ check all scan objects have the three_d_objects sorted by id
     :param scans: (dict)

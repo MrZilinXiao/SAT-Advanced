@@ -42,6 +42,10 @@ def make_batch_keys(args, extras=None):
     # if args.clip_backbone is not None and args.use_clip_language:
     batch_keys.append('clip_inds')  # use if accessible
 
+    batch_keys.append('clip_crops')
+
+    batch_keys.append('loss_mask')
+
     if args.offline_language_type is not None:
         batch_keys.append('txt_emb')
 
@@ -215,20 +219,28 @@ def single_epoch_train(model, data_loader, criteria, optimizer, device, pad_idx,
 # return 0.5*sim_losses/(feat1.shape[0]//per_loss_sample)
 
 
-def contrastive_loss(feat1, feat2, obj_count, margin=0.1, max_margin=True, weight=10., reduction=True):
+def contrastive_loss(feat1, feat2, obj_count, margin=0.1, max_margin=True, weight=10., reduction=True, mask=None):
     """
     2D<->3D corr loss，一个triplet loss
     reduction返回single value
+    TODO: 2021年12月03日15:26:32 fix 2D mask
+    feat1: [batch_size, max_context_size, feat1_size]
+    feat2: [batch_size, max_context_size, feat2_size]
+    mask: None or [batch_size, max_context_size]
+
     """
     sim_losses = 0. if reduction else []
     ## should norm? to be tested// L2 norm === 27.71 (sqrt(768)); w/o norm like almost no margin
     ## after adding norm, adjust weight accordingly (margin *6 from directly loss scale)
 
-    feat1 = F.normalize(feat1, p=2, dim=-1)
+    feat1 = F.normalize(feat1, p=2, dim=-1)  # [B, max_context_size, feat_size]
     feat2 = F.normalize(feat2, p=2, dim=-1)
-    for b_i in range(feat1.shape[0]):
+    for b_i in range(feat1.shape[0]):  # for each batch
         feat_2d, feat_3d, num_obj = feat1[b_i, :, :], feat2[b_i, :, :], obj_count[b_i]
+        b_mask = mask[b_i][:num_obj]
         feat_2d, feat_3d = feat_2d[:num_obj, :], feat_3d[:num_obj, :]
+        feat_2d, feat_3d = feat_2d[b_mask], feat_3d[b_mask]  # 2021年12月03日 added, compute loss only on valid_view
+
         cos_scores = feat_2d.mm(feat_3d.t())
         diagonal = cos_scores.diag().view(feat_2d.size(0), 1)
         d1 = diagonal.expand_as(cos_scores)
@@ -243,13 +255,13 @@ def contrastive_loss(feat1, feat2, obj_count, margin=0.1, max_margin=True, weigh
         cost_2d = cost_2d.masked_fill_(I, 0)
         # keep the maximum violating negative for each query
         # consider both in sample, and cross-sample 2d-3d "retrival"
-        if False:
-            cost_3d = cost_3d.max(1)[0]
-            cost_2d = cost_2d.max(0)[0]
-        else:
-            topk = min(3, int(cost_3d.shape[0]))
-            cost_3d = (torch.topk(cost_3d, topk, dim=1)[0])
-            cost_2d = (torch.topk(cost_2d, topk, dim=0)[0])
+        # if False:
+        #     cost_3d = cost_3d.max(1)[0]
+        #     cost_2d = cost_2d.max(0)[0]
+        # else:
+        topk = min(3, int(cost_3d.shape[0]))
+        cost_3d = (torch.topk(cost_3d, topk, dim=1)[0])
+        cost_2d = (torch.topk(cost_2d, topk, dim=0)[0])
         if reduction:
             batch_loss = torch.sum(cost_3d) + torch.sum(cost_2d)
             sim_losses = sim_losses + batch_loss
@@ -262,68 +274,68 @@ def contrastive_loss(feat1, feat2, obj_count, margin=0.1, max_margin=True, weigh
         return weight * torch.tensor(sim_losses, device=torch.device('cuda'))
 
 
-def contrastive_loss_batch(feat1, feat2, obj_count, margin=0.1, max_margin=True, weight=10., reduction=True):
-    feat1 = F.normalize(feat1, p=2, dim=-1)
-    feat2 = F.normalize(feat2, p=2, dim=-1)
-    feat_2d_list, feat_3d_list = [], []
-    for b_i in range(feat1.shape[0]):
-        feat_2d, feat_3d, num_obj = feat1[b_i, :, :], feat2[b_i, :, :], obj_count[b_i]
-        feat_2d_list.append(feat_2d[:num_obj, :])
-        feat_3d_list.append(feat_3d[:num_obj, :])
-    feat_2d = torch.cat(feat_2d_list, dim=0)
-    feat_3d = torch.cat(feat_3d_list, dim=0)
-    cos_scores = feat_2d.mm(feat_3d.t())
-    diagonal = cos_scores.diag().view(feat_2d.size(0), 1)
-    d1 = diagonal.expand_as(cos_scores)
-    d2 = diagonal.t().expand_as(cos_scores)
-    # feat_3d retrieval
-    cost_3d = (margin + cos_scores - d1).clamp(min=0)
-    # feat2d retrieval
-    cost_2d = (margin + cos_scores - d2).clamp(min=0)
-    # clear diagonals
-    I = (torch.eye(cos_scores.size(0), device=torch.device('cuda')) > .5)
-    cost_3d = cost_3d.masked_fill_(I, 0)
-    cost_2d = cost_2d.masked_fill_(I, 0)
-    # keep the maximum violating negative for each query
-    # consider both in sample, and cross-sample 2d-3d "retrival"
-    # if True:
-    #     cost_3d = cost_3d.max(1)[0]
-    #     cost_2d = cost_2d.max(0)[0]
-    # else:
-    #     cost_3d = (torch.topk(cost_3d, 10, dim=1)[0])/10.
-    #     cost_2d = (torch.topk(cost_2d, 10, dim=0)[0])/10.
-    # return weight * (torch.sum(cost_3d) + torch.sum(cost_2d)) / (torch.sum(obj_count))
-    if True:
-        cost_3d = cost_3d.max(1)[0]
-        cost_2d = cost_2d.max(0)[0]
-    else:
-        cost_3d = (torch.topk(cost_3d, 3, dim=1)[0])
-        cost_2d = (torch.topk(cost_2d, 3, dim=0)[0])
-    if reduction:
-        return weight * (torch.sum(cost_3d) + torch.sum(cost_2d)) / (torch.sum(obj_count))
-    else:
-        raise NotImplementedError("Not implemented when cost3d is not top-1")
-        return weight * (torch.mean(cost_3d, dim=1) + torch.mean(cost_2d, dim=1))
+# def contrastive_loss_batch(feat1, feat2, obj_count, margin=0.1, max_margin=True, weight=10., reduction=True):
+#     feat1 = F.normalize(feat1, p=2, dim=-1)
+#     feat2 = F.normalize(feat2, p=2, dim=-1)
+#     feat_2d_list, feat_3d_list = [], []
+#     for b_i in range(feat1.shape[0]):
+#         feat_2d, feat_3d, num_obj = feat1[b_i, :, :], feat2[b_i, :, :], obj_count[b_i]
+#         feat_2d_list.append(feat_2d[:num_obj, :])
+#         feat_3d_list.append(feat_3d[:num_obj, :])
+#     feat_2d = torch.cat(feat_2d_list, dim=0)
+#     feat_3d = torch.cat(feat_3d_list, dim=0)
+#     cos_scores = feat_2d.mm(feat_3d.t())
+#     diagonal = cos_scores.diag().view(feat_2d.size(0), 1)
+#     d1 = diagonal.expand_as(cos_scores)
+#     d2 = diagonal.t().expand_as(cos_scores)
+#     # feat_3d retrieval
+#     cost_3d = (margin + cos_scores - d1).clamp(min=0)
+#     # feat2d retrieval
+#     cost_2d = (margin + cos_scores - d2).clamp(min=0)
+#     # clear diagonals
+#     I = (torch.eye(cos_scores.size(0), device=torch.device('cuda')) > .5)
+#     cost_3d = cost_3d.masked_fill_(I, 0)
+#     cost_2d = cost_2d.masked_fill_(I, 0)
+#     # keep the maximum violating negative for each query
+#     # consider both in sample, and cross-sample 2d-3d "retrival"
+#     # if True:
+#     #     cost_3d = cost_3d.max(1)[0]
+#     #     cost_2d = cost_2d.max(0)[0]
+#     # else:
+#     #     cost_3d = (torch.topk(cost_3d, 10, dim=1)[0])/10.
+#     #     cost_2d = (torch.topk(cost_2d, 10, dim=0)[0])/10.
+#     # return weight * (torch.sum(cost_3d) + torch.sum(cost_2d)) / (torch.sum(obj_count))
+#     if True:
+#         cost_3d = cost_3d.max(1)[0]
+#         cost_2d = cost_2d.max(0)[0]
+#     else:
+#         cost_3d = (torch.topk(cost_3d, 3, dim=1)[0])
+#         cost_2d = (torch.topk(cost_2d, 3, dim=0)[0])
+#     if reduction:
+#         return weight * (torch.sum(cost_3d) + torch.sum(cost_2d)) / (torch.sum(obj_count))
+#     else:
+#         raise NotImplementedError("Not implemented when cost3d is not top-1")
+#         return weight * (torch.mean(cost_3d, dim=1) + torch.mean(cost_2d, dim=1))
 
 
-def merge_wordsplit_feat(token_feat, word_split_inds, context_size, proj_token_feat=None):
-    # print('WARNING: do not follow strict mean word split feature for speed; do not use in benchmark exps!!!\n add_special_tokens=False)[0]] in loader, merge_wordsplit_feat\n')
-    return token_feat, proj_token_feat, context_size
-    truncate_context_size = torch.zeros(context_size.shape, device=torch.device('cuda')).long()
-    return_token_feat = torch.zeros(token_feat.shape, device=torch.device('cuda'))
-    if proj_token_feat is not None:
-        proj_return_token_feat = torch.zeros(proj_token_feat.shape, device=torch.device('cuda'))
-    for b_i in range(token_feat.shape[0]):
-        truncate_context_size[b_i] = min(context_size[b_i], word_split_inds[b_i, :].max() + 1)
-        for c_i in range(word_split_inds[b_i, :].max() + 1):
-            idx = (word_split_inds[b_i, :] == c_i)
-            return_token_feat[b_i, c_i, :] = torch.mean(token_feat[b_i, idx, :], dim=0)
-            if proj_token_feat is not None:
-                proj_return_token_feat[b_i, c_i, :] = torch.mean(proj_token_feat[b_i, idx, :], dim=0)
-    if proj_token_feat is not None:
-        return return_token_feat, proj_return_token_feat, truncate_context_size
-    else:
-        return return_token_feat, truncate_context_size
+# def merge_wordsplit_feat(token_feat, word_split_inds, context_size, proj_token_feat=None):
+#     # print('WARNING: do not follow strict mean word split feature for speed; do not use in benchmark exps!!!\n add_special_tokens=False)[0]] in loader, merge_wordsplit_feat\n')
+#     return token_feat, proj_token_feat, context_size
+#     truncate_context_size = torch.zeros(context_size.shape, device=torch.device('cuda')).long()
+#     return_token_feat = torch.zeros(token_feat.shape, device=torch.device('cuda'))
+#     if proj_token_feat is not None:
+#         proj_return_token_feat = torch.zeros(proj_token_feat.shape, device=torch.device('cuda'))
+#     for b_i in range(token_feat.shape[0]):
+#         truncate_context_size[b_i] = min(context_size[b_i], word_split_inds[b_i, :].max() + 1)
+#         for c_i in range(word_split_inds[b_i, :].max() + 1):
+#             idx = (word_split_inds[b_i, :] == c_i)
+#             return_token_feat[b_i, c_i, :] = torch.mean(token_feat[b_i, idx, :], dim=0)
+#             if proj_token_feat is not None:
+#                 proj_return_token_feat[b_i, c_i, :] = torch.mean(proj_token_feat[b_i, idx, :], dim=0)
+#     if proj_token_feat is not None:
+#         return return_token_feat, proj_return_token_feat, truncate_context_size
+#     else:
+#         return return_token_feat, truncate_context_size
 
 
 def compute_losses(batch, res, criterion_dict, args):
@@ -337,6 +349,8 @@ def compute_losses(batch, res, criterion_dict, args):
     # Get the object language classification loss and the object classification loss
     criterion = criterion_dict['logits']
     logits = res['logits']
+
+    valid_mask = batch.get('loss_mask', torch.ones((logits.size(0), logits.size(1)), device=logits.device, dtype=torch.bool))  # [B, max_context_size]
 
     # Panos-note investigating tb output (if you do it like this, it does not separate, later additions
     # to total_loss from TODO POST DEADLINE.
@@ -373,13 +387,13 @@ def compute_losses(batch, res, criterion_dict, args):
 
     ## CE/FL, pad position shouldn't be calculated
     # sim_loss_type = 'fixed_ce'
-    sim_loss_type = 'contrastive'
-
-    if sim_loss_type == 'contrastive':
-        simloss = getattr(current_module, 'contrastive_loss')  # 定义simloss
-        # simloss = getattr(current_module, 'contrastive_loss_batch')
-    elif sim_loss_type == 'fixed_ce':
-        simloss = getattr(current_module, 'clip_matching_loss')
+    # sim_loss_type = 'contrastive'
+    #
+    # if sim_loss_type == 'contrastive':
+    #     simloss = getattr(current_module, 'contrastive_loss')  # 定义simloss
+    #     # simloss = getattr(current_module, 'contrastive_loss_batch')
+    # elif sim_loss_type == 'fixed_ce':
+    #     simloss = getattr(current_module, 'clip_matching_loss')
 
     if args.context_2d == 'unaligned':  # 默认没有对齐
         ## 2D-lang align loss
@@ -402,18 +416,19 @@ def compute_losses(batch, res, criterion_dict, args):
         ## if too many word split and tokens are truncated, batch_context_size will be smaller than batch['context_size']
         # feat_texttoken, batch_context_size = merge_wordsplit_feat(\
         #     res['mmt_texttoken_output'], batch['word_split_inds'], batch['context_size'])
-        sim2d3d_loss = simloss(feat_2d, feat_3d, batch['context_size'], reduction=(args.s_vs_n_weight is None))
+        sim2d3d_loss = contrastive_loss(feat_2d, feat_3d, batch['context_size'], reduction=(args.s_vs_n_weight is None), mask=valid_mask)
 
         # total_loss = total_loss + vg2d_loss
         # print(total_loss)
         total_loss = total_loss + vg2d_loss + sim2d3d_loss  # * 0.1
-        if args.tokenvisualloss:  # default False
-            feat_texttoken_2d, feat_texttoken_3d, batch_context_size = merge_wordsplit_feat( \
-                feat_texttoken_2d, batch['word_split_inds'], batch['context_size'], proj_token_feat=feat_texttoken_3d)
-            total_loss += simloss(feat_2d, feat_texttoken_2d, batch_context_size,
-                                  reduction=(args.s_vs_n_weight is None))  # * 0.1
-            total_loss += simloss(feat_3d, feat_texttoken_3d, batch_context_size,
-                                  reduction=(args.s_vs_n_weight is None))  # * 0.1
+        # TODO: 测试时计算loss不能继续算2D ，not emerg因为不影响performance（在新setting下，feat_2d已经empty了）
+        # if args.tokenvisualloss:  # default False
+        #     feat_texttoken_2d, feat_texttoken_3d, batch_context_size = merge_wordsplit_feat( \
+        #         feat_texttoken_2d, batch['word_split_inds'], batch['context_size'], proj_token_feat=feat_texttoken_3d)
+        #     total_loss += simloss(feat_2d, feat_texttoken_2d, batch_context_size,
+        #                           reduction=(args.s_vs_n_weight is None))  # * 0.1
+        #     total_loss += simloss(feat_3d, feat_texttoken_3d, batch_context_size,
+        #                           reduction=(args.s_vs_n_weight is None))  # * 0.1
 
     elif args.context_2d == 'aligned':
         if args.tokenvisualloss:
@@ -503,7 +518,7 @@ def evaluate_on_dataset(model, data_loader, criteria, device, pad_idx, args, ran
             batch['objects'] = batch['objects'].permute(0, 1, 3, 2)
 
         # Forward pass
-        res = model(batch)
+        res = model(batch, test_or_eval=True)
 
         all_losses = compute_losses(batch, res, criteria, args)
 

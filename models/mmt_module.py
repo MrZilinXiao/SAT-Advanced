@@ -11,7 +11,7 @@ from pytorch_transformers.modeling_bert import (
 )
 
 
-class TextBert(BertPreTrainedModel):
+class TextBert(BertPreTrainedModel):  # text encoder
     def __init__(self, config, mmt_mask=None, addlabel_words=False):
         super().__init__(config)
 
@@ -58,14 +58,7 @@ class MMT(BertPreTrainedModel):
         self.context_2d = context_2d
         self.mmt_mask = mmt_mask
         self.addlabel_words = addlabel_words
-        # self.embeddings = BertEmbeddings(config)
         self.encoder = BertEncoder(config)
-        # # if self.mmt_type_emd:
-        # if True:    ## img/text type emd
-        #     self.type_embeddings = nn.Embedding(2, config.hidden_size)
-        #     self.LayerNorm = BertLayerNorm(config.hidden_size)
-        #     self.dropout = nn.Dropout(0.1)
-        # # self.apply(self.init_weights)  # old versions of pytorch_transformers
         self.init_weights()
 
     def forward(self, txt_emb, txt_mask, obj_emb, obj_mask, obj_num):
@@ -225,85 +218,6 @@ class PolluteLinear(nn.Module):
         hidden_state = self.LayerNorm(gelu(self.dense(x)))
         return self.decoder(hidden_state)
 
-
-# class MMTMatchModule(nn.Module):
-#     """
-#     Input:
-#         Visual: data_dict['aggregated_vote_features'] # batch_size, num_proposal, 128
-#                 data_dict['objectness_scores'].max(2)[1].float().unsqueeze(2) # batch_size, num_proposals, 1
-#         Text: data_dict['token_inds']
-#               data_dict['token_num']
-#     Output:
-#         Matching score: data_dict["cluster_ref"]
-#         Lang CLS score: data_dict["lang_scores"]
-#     """
-#     def __init__(self, num_class, num_proposals=256, lang_size=256, visudim=128, TEXT_BERT_HIDDEN_SIZE=768, MMT_HIDDEN_SIZE=192):
-#         super(MMTMatchModule, self).__init__()
-#         ## https://huggingface.co/transformers/v1.2.0/_modules/pytorch_transformers/modeling_bert.html
-#         ## class BertConfig(PretrainedConfig)
-#         self.text_bert_config = BertConfig(
-#                  hidden_size=TEXT_BERT_HIDDEN_SIZE,
-#                  num_hidden_layers=3,
-#                  num_attention_heads=12,
-#                  type_vocab_size=2)
-#         self.text_bert = TextBert.from_pretrained(
-#             'bert-base-uncased', config=self.text_bert_config
-#         )
-#         self.text_bert_out_linear = nn.Linear(
-#             TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE
-#         )
-#         self.linear_obj_feat_to_mmt_in = nn.Linear(
-#             visudim, MMT_HIDDEN_SIZE
-#         )
-#         # self.obj_feat_layer_norm = BertLayerNorm(MMT_HIDDEN_SIZE)
-#         # self.obj_drop = nn.Dropout(0.1)
-
-#         self.mmt_config = BertConfig(
-#                  hidden_size=MMT_HIDDEN_SIZE,
-#                  num_hidden_layers=4,
-#                  num_attention_heads=12,
-#                  type_vocab_size=2)
-#         self.mmt = MMT(self.mmt_config)
-#         # self.mmt = MMT.from_pretrained(
-#         #     'bert-base-uncased', config=self.mmt_config
-#         # )
-#         self.lang_cls = nn.Sequential(
-#             nn.Linear(MMT_HIDDEN_SIZE, num_class),
-#             # nn.Dropout()
-#         )
-#         self.matching_cls = MatchingLinear(input_size=MMT_HIDDEN_SIZE)
-
-#     def forward(self, data_dict):
-#         # unpack outputs from detection branch
-#         obj_feat = data_dict['aggregated_vote_features'] # batch_size, num_proposal, 128
-#         coords = data_dict['aggregated_vote_xyz'] # batch_size, num_proposal, 128
-#         objectness_masks = data_dict['objectness_scores'].max(2)[1].float().unsqueeze(2) # batch_size, num_proposals, 1
-#         # obj_mmt_in = self.obj_drop(self.obj_feat_layer_norm(
-#         #         self.linear_obj_feat_to_mmt_in(obj_feat)))
-#         obj_mmt_in = self.linear_obj_feat_to_mmt_in(obj_feat)
-#         obj_mask = _get_mask(data_dict['num_bbox'].to(obj_mmt_in.device), obj_mmt_in.size(1))    ## all proposals are non-empty
-
-#         # unpack outputs from language branch
-#         txt_inds = data_dict["token_inds"] # batch_size, lang_size
-#         txt_mask = _get_mask(data_dict['token_num'].to(txt_inds.device), txt_inds.size(1))  ## all proposals are non-empty
-#         text_bert_out = self.text_bert(
-#             txt_inds=txt_inds,
-#             txt_mask=txt_mask
-#         )
-#         txt_emb = self.text_bert_out_linear(text_bert_out)
-
-#         mmt_results = self.mmt(
-#             txt_emb=txt_emb,
-#             txt_mask=txt_mask,
-#             obj_emb=obj_mmt_in,
-#             obj_mask=obj_mask
-#         )
-#         # print(txt_inds.shape,txt_emb.shape,obj_mmt_in.shape,mmt_results['mmt_seq_output'].shape)
-#         # torch.Size([8, 128]) torch.Size([8, 128, 192]) torch.Size([8, 256, 192]) torch.Size([8, 384, 192])
-
-#         data_dict["lang_scores"] = self.lang_cls(txt_emb[:,0,:])
-#         data_dict["cluster_ref"] = self.matching_cls(mmt_results['mmt_obj_output'])
-#         return data_dict
 
 ## pad at the end; used anyway by obj, ocr mmt encode
 def _get_mask(nums, max_num):

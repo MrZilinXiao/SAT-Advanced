@@ -46,7 +46,7 @@ output_path = '/localdisk2/DATASET/scannet/tasks/scannet_frames_25k_CLIP_RN5016'
 # context_path = '/localdisk2/zyang39/DATASET/scannet/tasks/scannet_frames_25k_gtobjfeat_aggregate'
 context_path = '/localdisk2/DATASET/scannet/tasks/scannet_frames_25k_gtobjfeat_aggregate_frameid'
 filelist = os.listdir(context_path)
-loader = transforms.Compose([transforms.ToTensor()])
+loader = transforms.Compose([transforms.ToTensor()])  # necessary? 255->1
 
 for scan_id in tqdm(filelist):
     scan_id = scan_id[:-4]
@@ -71,12 +71,12 @@ for scan_id in tqdm(filelist):
             if not os.path.isfile(image_path) and frame_id == 0:
                 print(scan_id, frame_id)
                 break
-            image = loader(Image.open(image_path, 'r').convert('RGB'))
+            image = loader(Image.open(image_path, 'r').convert('RGB'))  # torch.Tensor
             bbox = context_bbox[box_ii, sampled_id, :]
             if bbox.sum() == 0: continue
             x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
             if x1 == x2 or y1 == y2: continue
-            region_ii = image[:, y1:y2, x1:x2]
+            region_ii = image[:, y1:y2, x1:x2]  # torch.Tensor
             region_ii = preprocess(region_ii).unsqueeze(0).to(device)
             image_features = model.encode_image(region_ii)
             obj_feat[box_ii, sampled_id, :] = image_features.detach().cpu().numpy()

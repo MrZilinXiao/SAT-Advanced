@@ -29,7 +29,8 @@ class PointNetPP(nn.Module):
                  sa_radii: list,
                  sa_mlps: list,
                  bn=True,
-                 use_xyz=True):
+                 use_xyz=True,
+                 num_classes=40):
         super().__init__()
 
         n_sa = len(sa_n_points)
@@ -51,12 +52,23 @@ class PointNetPP(nn.Module):
         out_n_points = sa_n_points[-1] if sa_n_points[-1] is not None else 1
         self.fc = nn.Linear(out_n_points * sa_mlps[-1][-1], sa_mlps[-1][-1])
 
+        self.classifier = nn.Sequential(
+            nn.BatchNorm1d(sa_mlps[-1][-1]),
+            nn.Dropout(0.4),
+            nn.Linear(sa_mlps[-1][-1], num_classes)
+        )  # here we need `unstrict` model loading...
+
     def forward(self, features):
         """
         @param features: B x N_objects x N_Points x 3 + C
+        2021-12-06: in fact, it is [n_objects, n_points, 6] -> [n_objects, obj_latent_dim]
         """
         xyz, features = break_up_pc(features)
         for i in range(len(self.encoder)):
             xyz, features = self.encoder[i](xyz, features)
 
-        return self.fc(features.view(features.size(0), -1))
+        return self.fc(features.view(features.size(0), -1))  # [bs, 768]
+
+    def forward_clf(self, features):  # for pretraining usage
+        logits = self.forward(features)
+        return self.classifier(logits)
