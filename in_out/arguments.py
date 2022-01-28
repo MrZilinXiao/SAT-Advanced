@@ -24,6 +24,10 @@ def parse_arguments(notebook_options=None):
     parser.add_argument('--load-pretrained-obj-encoder', type=str, default=None)  # allow load pretrained obj encoder
 
     #
+    # shijia's language guided loss options, added: 2022-01-28 14:58
+    parser.add_argument('--lang-guided', type=str2bool, default=False)
+
+    #
     # self-defined params for exp ease
     #
 

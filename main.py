@@ -25,10 +25,18 @@ python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 --transformer --experime
 
 (ROI feat replicated)   0.480 (@epoch 93)
 python main.py --init-lr 0.0001 --batch-size=16 --gpu=3 --transformer --experiment-tag=roi_feat \
---model mmt_referIt3DNet -scannet-file /data/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
--offline-2d-feat /data/meta-ScanNet/split_feat/ \
--referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--model mmt_referIt3DNet -scannet-file /data/xiaozilin/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/xiaozilin/meta-ScanNet/split_feat/ \
+-referit3D-file /data/xiaozilin/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit
+
+2022年01月28日 (Shijia's language-guided command)
+python main.py --init-lr 0.0001 --batch-size=16 --gpu=0 --transformer --experiment-tag=lang_guided \
+--model mmt_referIt3DNet -scannet-file /data/xiaozilin/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/xiaozilin/meta-ScanNet/split_feat/ \
+-referit3D-file /data/xiaozilin/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit \
+--lang-guided True
 
 (ROI feat replicated evaluate)
 CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=2 --transformer --experiment-tag=roi_feat \
@@ -360,7 +368,11 @@ if __name__ == '__main__':
     all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(args.scannet_file)
 
     # Shijia's language-guided loss -- part1, load text labels from `class_to_idx`
-    class_name_list = list(class_to_idx.keys())
+    if args.lang_guided:
+        class_name_list = list(class_to_idx.keys())
+        logger.info(f"Check label list here (num of labels: {len(class_name_list)}): {class_name_list}")
+    else:
+        class_name_list = None
 
     # Read the linguistic data of ReferIt3D
     referit_data = load_referential_data(args, args.referit3D_file, scans_split)  # nr3d.csv/sr3d.csv就ok
@@ -426,7 +438,7 @@ if __name__ == '__main__':
     n_classes = len(class_to_idx) - 1  # -1 to ignore the <pad> class
     pad_idx = class_to_idx['pad']
 
-    model = instantiate_referit3d_net(args, vocab, n_classes).to(device)  # n_classes: number of instance labels
+    model = instantiate_referit3d_net(args, vocab, n_classes, class_name_list=class_name_list).to(device)  # n_classes: number of instance labels
     # optimizer = optim.Adam(model.parameters(), lr=args.init_lr)
     # lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.65,
     #                                                           patience=5, verbose=True)

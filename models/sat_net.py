@@ -13,6 +13,8 @@ from in_out.vocabulary import Vocabulary
 from loguru import logger
 from termcolor import colored
 
+from pytorch_transformers.tokenization_bert import BertTokenizer
+
 from torch.utils.checkpoint import checkpoint_sequential
 
 try:
@@ -143,6 +145,8 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                     logger.warning('DEBUG: We init weight of TextBERT to observe txt_cls_acc...')
                     self.text_bert.init_weights()
                 if TEXT_BERT_HIDDEN_SIZE != MMT_HIDDEN_SIZE:
+                    logger.warning(
+                        'DEBUG: Unaligned TextBERT output hidden_size and MMT input hidden size. Applying linear projection...')
                     self.text_bert_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, MMT_HIDDEN_SIZE)
                 else:  # SAT original setting here
                     self.text_bert_out_linear = nn.Identity()
@@ -222,8 +226,26 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         #                     nn.ReLU(),
         #                     nn.Linear(768, 768))
         # 2022-01-28 14:17:00 add Shijia
+
         if class_name_list is not None:
-            
+            assert args.offline_language_type is None, "language-guided loss needs unfrozen TextBERT!"
+            self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+            assert self.tokenizer.encode(self.tokenizer.pad_token) == [0], "Wrong Padding token id!"
+            # self.class_name_token = self.tokenizer(class_name_list, return_tensors='pt', padding=True)
+            # latest `transformers` usage. pytorch_transformers follows.
+            # prepare `input_ids` only!
+            self.class_name_token = [self.tokenizer.encode(label, add_special_tokens=True) for label in class_name_list]
+            # if all labels with only one word, no padding is needed, otherwise we need manually padding.
+            max_seq_len = len(max(self.class_name_token, key=len))
+            for i in range(len(self.class_name_token)):
+                self.class_name_token[i].extend([self.tokenizer.pad_token_id] * (max_seq_len - len(self.class_name_token[i])))
+            # self.class_name_token = [label_token_ids.extend([self.tokenizer.pad_token_id] * (max_seq_len - len(label_token_ids)))
+            #                          for label_token_ids in self.class_name_token]
+            # print(self.class_name_token)
+            self.class_name_token = torch.tensor(self.class_name_token, dtype=torch.int64, device='cuda')
+            logger.warning("inited a language-guided class_name_token list!")
+        else:
+            self.class_name_token = None
 
     def __call__(self, batch: dict, test_or_eval=False) -> dict:
         """
@@ -256,6 +278,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         objects_features = get_siamese_features(self.object_encoder, batch['objects'],
                                                 aggregator=torch.stack)  # B X N_Objects x object-latent-dim
         # batch['objects']: [bs, num_obj, num_points, 6]
+        B, N = objects_features.shape[:2]
 
         # 3D features
         obj_mmt_in = self.obj_feat_layer_norm(self.linear_obj_feat_to_mmt_in(objects_features)) + \
@@ -278,7 +301,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                                   device=img_batch.device)  # N, obj, 768 + num_class
             for i in range(obj_num):  # too heavy? should try it out.
                 imgs = img_batch[:, i, :, :, :]  # N, 3, 384, 384
-                feats = self.clip_model.encode_image(imgs)   # this encode could use gradient checkpointing
+                feats = self.clip_model.encode_image(imgs)  # this encode could use gradient checkpointing
                 feat_2d[:, i, :self.featdim] = feats
                 feat_2d[:, i, self.featdim:] = batch['feat_2d'][:, i, self.featdim:]  # paste the class vector
 
@@ -306,6 +329,22 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
             objects_classifier_features = obj_mmt_in
             # objects_classifier_features = objects_features
             result['class_logits'] = get_siamese_features(self.object_clf, objects_classifier_features, torch.stack)
+
+        # shijia's language-guided source, overwrite result['class_logits']
+        if self.class_name_token is not None and not self.args.use_clip_language:
+            # label_lang_infos = self.language_encoder(**self.class_name_tokens)[0][:, 0]
+            # self.class_name_token: [num_of_labels, 3]
+            # object_features: [batch_size, n_obj, obj_latent_dim(768)]
+            txt_type_mask = torch.ones(self.class_name_token.shape, device=torch.device('cuda'), dtype=torch.int64)
+            txt_mask = torch.ones(self.class_name_token.shape, device=torch.device('cuda'), dtype=torch.int64)
+            label_lang_logits = self.text_bert(
+                txt_inds=self.class_name_token,
+                txt_mask=txt_mask,
+                txt_type_mask=txt_type_mask
+            )  # [num_labels, 3, lang_latent_dim(768)], check dim here
+            label_lang_logits = label_lang_logits[:, 0]  # [num_labels, 768]
+            result['class_logits'] = torch.matmul(objects_features.reshape(B * N, -1), label_lang_logits.permute(1, 0)).reshape(
+                B, N, -1)  # (B * N, 768) X (768, num_labels)
 
         if self.context_2d == 'unaligned':  # 将2D feat作为context_obj接到3D feat后面
             # context_obj_mmt_in = self.obj2d_feat_layer_norm(self.linear_2d_feat_to_mmt_in(batch['feat_2d'])) + \
@@ -368,6 +407,7 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
                 if self.language_clf is not None:
                     result['lang_logits'] = self.language_clf(
                         text_bert_out[:, 0, :])  # language classifier only use [CLS] token
+
             else:  # clip language encoder
                 txt_emb = self.clip_model.encode_text(batch['clip_inds'])  # txt embeddings shape: [N, lang_size, 768]
                 txt_mask = _get_mask(batch['token_num'].to(batch['clip_inds'].device),  # how many token are not masked
@@ -461,7 +501,8 @@ class MMT_ReferIt3DNet(nn.Module):  # SAT Model
         return result
 
 
-def instantiate_referit3d_net(args: argparse.Namespace, vocab: Vocabulary, n_obj_classes: int) -> nn.Module:
+def instantiate_referit3d_net(args: argparse.Namespace, vocab: Vocabulary, n_obj_classes: int,
+                              class_name_list=None) -> nn.Module:
     """
     Creates a neural listener by utilizing the parameters described in the args
     but also some "default" choices we chose to fix in this paper.
@@ -469,6 +510,7 @@ def instantiate_referit3d_net(args: argparse.Namespace, vocab: Vocabulary, n_obj
     @param args:
     @param vocab:
     @param n_obj_classes: (int)
+    @param class_name_list: List[str], list of label words in dataset
     """
 
     # convenience
@@ -512,7 +554,9 @@ def instantiate_referit3d_net(args: argparse.Namespace, vocab: Vocabulary, n_obj
             pretrain=args.pretrain,
             context_2d=args.context_2d,
             feat2dtype=args.feat2d,
-            mmt_mask=args.mmt_mask)
+            mmt_mask=args.mmt_mask,
+            class_name_list=class_name_list
+        )
     else:
         raise NotImplementedError('Unknown listener model is requested.')
 
