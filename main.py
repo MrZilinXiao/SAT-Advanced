@@ -23,20 +23,36 @@ python main.py --init-lr 0.0001 --batch-size=36 --gpu=0 --transformer --experime
 -referit3D-file /data/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit
 
-(ROI feat replicated)   0.480 (@epoch 93)
-python main.py --init-lr 0.0001 --batch-size=16 --gpu=3 --transformer --experiment-tag=roi_feat \
+(ROI feat replicated)   0.480 (@epoch 93) default SAT
+python main.py --init-lr 0.0001 --batch-size=16 --gpu=0 --transformer --experiment-tag=roi_feat_default \
 --model mmt_referIt3DNet -scannet-file /data/xiaozilin/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/xiaozilin/meta-ScanNet/split_feat/ \
 -referit3D-file /data/xiaozilin/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit
 
-2022年01月28日 (Shijia's language-guided command)
-python main.py --init-lr 0.0001 --batch-size=16 --gpu=0 --transformer --experiment-tag=lang_guided \
+2022年01月28日 (Shijia's language-guided command with SAT)
+python main.py --init-lr 0.0001 --batch-size=16 --gpu=1 --transformer --experiment-tag=lang_guided \
 --model mmt_referIt3DNet -scannet-file /data/xiaozilin/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
 -offline-2d-feat /data/xiaozilin/meta-ScanNet/split_feat/ \
 -referit3D-file /data/xiaozilin/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
 --feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit \
 --lang-guided True
+
+default non-SAT
+python main.py --init-lr 0.0001 --batch-size=16 --gpu=2 --transformer --experiment-tag=non_sat \
+--model mmt_referIt3DNet -scannet-file /data/xiaozilin/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/xiaozilin/meta-ScanNet/split_feat/ \
+-referit3D-file /data/xiaozilin/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit \
+--non-SAT True
+
+language-guided non-SAT
+python main.py --init-lr 0.0001 --batch-size=16 --gpu=3 --transformer --experiment-tag=non_sat_lang_guided \
+--model mmt_referIt3DNet -scannet-file /data/xiaozilin/meta-ScanNet/pkl_nr3d/keep_all_points_00_view_with_global_scan_alignment/keep_all_points_00_view_with_global_scan_alignment.pkl \
+-offline-2d-feat /data/xiaozilin/meta-ScanNet/split_feat/ \
+-referit3D-file /data/xiaozilin/meta-ScanNet/nr3d.csv --log-dir /data/logs/ --unit-sphere-norm True \
+--feat2d ROI --clsvec2d --context_2d unaligned --mmt_mask train2d --save-args --n-workers 4 --wandb-log --git-commit \
+--non-SAT True --lang-guided True
 
 (ROI feat replicated evaluate)
 CUDA_VISIBLE_DEVICES=2 python main.py --mode evaluate --init-lr 0.0001 --batch-size=64 --gpu=2 --transformer --experiment-tag=roi_feat \

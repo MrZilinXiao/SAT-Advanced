@@ -26,6 +26,10 @@ def parse_arguments(notebook_options=None):
     #
     # shijia's language guided loss options, added: 2022-01-28 14:58
     parser.add_argument('--lang-guided', type=str2bool, default=False)
+    parser.add_argument('--non-SAT', type=str2bool, default=False)
+    # non-SAT需要care的几件事：
+    # 1. 关掉2D-3D之间的sim_loss(`Object correspondence loss` in the paper)以及2D VG Loss；
+    # 2. MMT中att_mask不用刻意改变
 
     #
     # self-defined params for exp ease
@@ -218,6 +222,11 @@ def parse_arguments(notebook_options=None):
         args = parser.parse_args(notebook_options)
     else:
         args = parser.parse_args()
+
+    if not args.non_SAT:
+        logger.info('SAT settings with 2D VG Loss & 2D-3D Loss!')
+    else:
+        logger.info('Non-SAT settings, 2D VG Loss & 2D-3D Loss are disabled!')
 
     if args.mode == 'train' and not args.resume_path and not args.log_dir:
         raise ValueError('You have to indicate either resume_path or log_dir when training!')

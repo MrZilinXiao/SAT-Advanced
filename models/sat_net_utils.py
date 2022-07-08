@@ -350,7 +350,8 @@ def compute_losses(batch, res, criterion_dict, args):
     criterion = criterion_dict['logits']
     logits = res['logits']
 
-    valid_mask = batch.get('loss_mask', torch.ones((logits.size(0), logits.size(1)), device=logits.device, dtype=torch.bool))  # [B, max_context_size]
+    valid_mask = batch.get('loss_mask', torch.ones((logits.size(0), logits.size(1)), device=logits.device,
+                                                   dtype=torch.bool))  # [B, max_context_size]
 
     # Panos-note investigating tb output (if you do it like this, it does not separate, later additions
     # to total_loss from TODO POST DEADLINE.
@@ -396,39 +397,46 @@ def compute_losses(batch, res, criterion_dict, args):
     #     simloss = getattr(current_module, 'clip_matching_loss')
 
     if args.context_2d == 'unaligned':  # 默认没有对齐
-        ## 2D-lang align loss
-        # vg2d_loss = criterion(res['logits_2D'], batch['target_pos'])
-        if args.s_vs_n_weight is not None:
-            # vg2d_loss = criterion(res['logits_2D'], batch)
-            vg2d_loss = criterion_dict['logits_nondec'](logits, batch[
-                'target_pos'])  # nn.CrossEntropyLoss(reduction='none').to(device)
-        else:
-            vg2d_loss = criterion(res['logits_2D'], batch['target_pos'])
-            # 2D Grounding loss, logits_2D(softmax后)对齐target_pos(语句所指的GT object index)
-            # criterion默认是‘class_logits’
-        ## 2D-3D align loss; contra loss, cos
-        feat_2d = res['mmt_obj_output_2D']  # 虽然是offline的2D feature，但是后面接了一个head
-        feat_3d = res['mmt_obj_output']
-        feat_texttoken_2d = res['mmt_texttoken2d_output']
-        feat_texttoken_3d = res['mmt_texttoken3d_output']
-        # feat_texttoken_2d, feat_texttoken_3d = res['mmt_texttoken_output'], res['mmt_texttoken_output']
+        if not args.non_SAT:
+            # logger.info('SAT settings with 2D VG Loss & 2D-3D Loss!')
 
-        ## if too many word split and tokens are truncated, batch_context_size will be smaller than batch['context_size']
-        # feat_texttoken, batch_context_size = merge_wordsplit_feat(\
-        #     res['mmt_texttoken_output'], batch['word_split_inds'], batch['context_size'])
-        sim2d3d_loss = contrastive_loss(feat_2d, feat_3d, batch['context_size'], reduction=(args.s_vs_n_weight is None), mask=valid_mask)
+            ## 2D-lang align loss
+            # vg2d_loss = criterion(res['logits_2D'], batch['target_pos'])
+            if args.s_vs_n_weight is not None:
+                # vg2d_loss = criterion(res['logits_2D'], batch)
+                vg2d_loss = criterion_dict['logits_nondec'](logits, batch[
+                    'target_pos'])  # nn.CrossEntropyLoss(reduction='none').to(device)
+            else:
+                vg2d_loss = criterion(res['logits_2D'], batch['target_pos'])
+                # 2D Grounding loss, logits_2D(softmax后)对齐target_pos(语句所指的GT object index)
+                # criterion默认是‘class_logits’
+            ## 2D-3D align loss; contra loss, cos
+            feat_2d = res['mmt_obj_output_2D']  # 虽然是offline的2D feature，但是后面接了一个head
+            feat_3d = res['mmt_obj_output']
+            feat_texttoken_2d = res['mmt_texttoken2d_output']
+            feat_texttoken_3d = res['mmt_texttoken3d_output']
+            # feat_texttoken_2d, feat_texttoken_3d = res['mmt_texttoken_output'], res['mmt_texttoken_output']
 
-        # total_loss = total_loss + vg2d_loss
-        # print(total_loss)
-        total_loss = total_loss + vg2d_loss + sim2d3d_loss  # * 0.1
-        # TODO: 测试时计算loss不能继续算2D ，not emerg因为不影响performance（在新setting下，feat_2d已经empty了）
-        # if args.tokenvisualloss:  # default False
-        #     feat_texttoken_2d, feat_texttoken_3d, batch_context_size = merge_wordsplit_feat( \
-        #         feat_texttoken_2d, batch['word_split_inds'], batch['context_size'], proj_token_feat=feat_texttoken_3d)
-        #     total_loss += simloss(feat_2d, feat_texttoken_2d, batch_context_size,
-        #                           reduction=(args.s_vs_n_weight is None))  # * 0.1
-        #     total_loss += simloss(feat_3d, feat_texttoken_3d, batch_context_size,
-        #                           reduction=(args.s_vs_n_weight is None))  # * 0.1
+            ## if too many word split and tokens are truncated, batch_context_size will be smaller than batch['context_size']
+            # feat_texttoken, batch_context_size = merge_wordsplit_feat(\
+            #     res['mmt_texttoken_output'], batch['word_split_inds'], batch['context_size'])
+            sim2d3d_loss = contrastive_loss(feat_2d, feat_3d, batch['context_size'],
+                                            reduction=(args.s_vs_n_weight is None), mask=valid_mask)
+
+            # total_loss = total_loss + vg2d_loss
+            # print(total_loss)
+            total_loss = total_loss + vg2d_loss + sim2d3d_loss  # * 0.1
+            # TODO: 测试时计算loss不能继续算2D ，not emerg因为不影响performance（在新setting下，feat_2d已经empty了）
+            # if args.tokenvisualloss:  # default False
+            #     feat_texttoken_2d, feat_texttoken_3d, batch_context_size = merge_wordsplit_feat( \
+            #         feat_texttoken_2d, batch['word_split_inds'], batch['context_size'], proj_token_feat=feat_texttoken_3d)
+            #     total_loss += simloss(feat_2d, feat_texttoken_2d, batch_context_size,
+            #                           reduction=(args.s_vs_n_weight is None))  # * 0.1
+            #     total_loss += simloss(feat_3d, feat_texttoken_3d, batch_context_size,
+            #                           reduction=(args.s_vs_n_weight is None))  # * 0.1
+        # else:
+            # logger.info('Non-SAT settings, 2D VG Loss & 2D-3D Loss are disabled!')
+
 
     elif args.context_2d == 'aligned':
         if args.tokenvisualloss:
@@ -460,7 +468,8 @@ def compute_losses(batch, res, criterion_dict, args):
     # 原先ReferIt3D的loss
     if args.obj_cls_alpha > 0:
         criterion = criterion_dict['class_logits']
-        obj_clf_loss = criterion(res['class_logits'].transpose(2, 1), batch['class_labels'])  # 对场景里所有object都可以做3D <-> obj_class
+        obj_clf_loss = criterion(res['class_logits'].transpose(2, 1),
+                                 batch['class_labels'])  # 对场景里所有object都可以做3D <-> obj_class
         if args.s_vs_n_weight is not None:
             obj_clf_loss = torch.mean(obj_clf_loss, dim=1) * weights
             obj_clf_loss = obj_clf_loss.sum() / len(obj_clf_loss)
@@ -468,12 +477,12 @@ def compute_losses(batch, res, criterion_dict, args):
 
     if args.lang_cls_alpha > 0:
         criterion = criterion_dict['lang_logits']
-        lang_clf_loss = criterion(res['lang_logits'], batch['target_class'])   # language logits与instance class的分类（这句话描述的是哪种instance）
+        lang_clf_loss = criterion(res['lang_logits'],
+                                  batch['target_class'])  # language logits与instance class的分类（这句话描述的是哪种instance）
         if args.s_vs_n_weight is not None:
             lang_clf_loss = lang_clf_loss * weights
             lang_clf_loss = lang_clf_loss.sum() / len(lang_clf_loss)
         total_loss += lang_clf_loss * args.lang_cls_alpha
-
 
     # ref_loss = 3D grounding + 2D grounding + obj_corr
     # obj_clf_loss = 3D <-> classification
